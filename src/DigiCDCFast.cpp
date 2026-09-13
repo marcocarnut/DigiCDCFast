@@ -25,6 +25,8 @@ static RingBuffer_t txBuf;
 static uint8_t      txBuf_Data[HW_CDC_TX_BUF_SIZE];
 
 static bool         hostStalled;    /* host stopped reading: don't wait for room */
+static unsigned long lastInMs;      /* when the last data packet was queued for the host */
+static bool         resyncSent;     /* empty packet already queued ahead of the next data */
 
 uchar              sendEmptyFrame;
 static uchar       intr3Status;    /* used to control interrupt endpoint transmissions */
@@ -46,6 +48,10 @@ void DigiCDCDevice::delay(long milli) {
 /* How long write() and flush() wait for the host to take data before
    deciding it has stopped reading (e.g. no program has the port open). */
 #define HOST_TIMEOUT_MS 50
+
+/* Idle time after which an empty packet is sent ahead of new data (see
+   usbPollWrapper()). */
+#define RESYNC_IDLE_MS 10
 
 static uint8_t txPending()
 {
@@ -202,12 +208,26 @@ void DigiCDCDevice::usbPollWrapper()
 
     if(usbInterruptIsReady())
     {
-        if(index>0)
+        if(index>0 && !resyncSent && millis() - lastInMs > RESYNC_IDLE_MS)
+        {
+            /* After receiving heavily without sending, the host sometimes
+               drops the first packet sent (on Linux/xHCI: every time under a
+               continuous flood). It behaves like a data toggle mismatch: the
+               host resets its side of the IN endpoint after transaction
+               errors without telling the device. An empty packet first
+               absorbs the loss; if nothing is wrong, the host just gets an
+               empty read. */
+            usbSetInterrupt(tmp,0);
+            resyncSent = true;
+        }
+        else if(index>0)
         {
             usbSetInterrupt(tmp,index);
             /* only a full packet leaves the host waiting for more */
             sendEmptyFrame = (index == HW_CDC_BULK_IN_SIZE);
             index = 0;
+            resyncSent = false;
+            lastInMs = millis();
         }
         else if(sendEmptyFrame)
         {

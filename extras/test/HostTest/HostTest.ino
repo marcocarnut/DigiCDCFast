@@ -10,6 +10,9 @@
     'W'  wait 1 s (the host closes the port meanwhile), then time writing
          300 bytes and a flush() with nobody reading
     '?'  report the result of the last 'W'
+    'F'  read (and discard) for 1.5 s, then send 120 bytes 0x80, 0x81, ...
+         and report how many write() accepted: the host floods the board
+         first, and may keep flooding while it sends
     Ctrl-C three times in a row jumps to the micronucleus bootloader, so the
     board can be reflashed without replugging.
 
@@ -22,6 +25,8 @@
 #define PATTERN_BYTES 2000
 #define STREAM_BYTES  20000UL
 #define STALL_BYTES   300
+#define FLOOD_MS      1500
+#define FLOOD_PATTERN 120
 
 static unsigned long stallWriteMs, stallFlushMs;
 static uint16_t stallAccepted;
@@ -120,6 +125,15 @@ void loop()
     start = millis();
     SerialUSB.flush();
     stallFlushMs = millis() - start;
+    break;
+
+  case 'F':
+    start = millis();
+    while (millis() - start < FLOOD_MS)
+      SerialUSB.read();
+    for (uint8_t i = 0; i < FLOOD_PATTERN; i++)
+      count += SerialUSB.write(0x80 + i);
+    report('F', count, 0, 0);
     break;
 
   case '?':

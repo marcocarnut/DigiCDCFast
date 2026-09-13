@@ -124,6 +124,29 @@ byte whenever the start bit is caught more than half a bit late. That
 happens to 1.4% of interrupts at 19200 bps with USB idle, and 4-6% at
 9600 bps while data is flowing.
 
+## Known issue: lost packets under heavy two-way traffic
+
+The `flood` tests in `extras/test/hosttest.py` found two ways a packet sent
+to the host can be lost (Digispark Pro, Linux/xHCI):
+
+- **The first packet after heavy receiving.** When the host sends a lot of
+  data and the sketch sends nothing for a while, the first packet the sketch
+  sends afterwards was dropped every time while the host kept sending, and in
+  8 of 40 tries after it had stopped. It behaves like a data toggle mismatch:
+  the host resets its side of the endpoint after transaction errors without
+  telling the device. DigiCDCFast now sends an empty packet ahead of new data
+  after 10 ms without sending, which absorbs the loss: 0 of 40 tries lost data
+  after the host stopped.
+- **Occasional packets while both directions are saturated.** With the host
+  flooding the sketch while it sends, about 1 round in 20 still lost one
+  8-byte packet. V-USB marks a packet as delivered as soon as it sends it,
+  without waiting for the host's acknowledgement ("the rest of the driver
+  assumes error-free transfers anyway", `src/asmcommon.inc`), so a packet the
+  host didn't receive correctly is never sent again.
+
+If a sketch receives and sends heavily at the same time, check data at the
+application level.
+
 ## Not tested
 
 - **Windows and macOS.** Only Linux has been tested. Hosts that follow the

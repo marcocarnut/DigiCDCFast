@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Run the DigiCDCFast hardware tests against a board running HostTest.
 
-usage: hosttest.py [PORT]   (default /dev/ttyACM0; Linux/POSIX only)
+usage: hosttest.py [PORT] [FLOOD_ROUNDS]   (default /dev/ttyACM0; Linux/POSIX only)
+
+With FLOOD_ROUNDS, runs only the flood-then-send test, that many rounds per
+variant, and prints which bytes each round lost.
 """
 import os
 import re
@@ -13,6 +16,8 @@ import tty
 
 PATTERN = bytes(i & 0xFF for i in range(2000))
 STREAM = bytes(i & 0xFF for i in range(20000))
+FLOOD_CHUNK = b"U" * 64  # not a HostTest command
+FLOOD_PATTERN = bytes(0x80 + i for i in range(120))
 
 
 def open_port(path):
@@ -140,15 +145,81 @@ def test_host_stalled(path, fd):
                  f" flush() took {flush_ms} ms"), fd
 
 
+def flood_round(fd, keep_flooding):
+    """One 'F' round; returns (missing pattern indexes, extra bytes, accepted)
+    or None if no report arrived."""
+    report = re.compile(rb"F (-?\d+) (-?\d+) (-?\d+)\r\n")
+    os.write(fd, b"F")
+    start = time.time()
+    data = b""
+    stopped = False
+    while True:
+        elapsed = time.time() - start
+        flooding = elapsed < 1.2 or keep_flooding
+        if not flooding and not stopped:
+            termios.tcflush(fd, termios.TCOFLUSH)  # quiet well before the board sends
+            stopped = True
+        readable, writable, _ = select.select([fd], [fd] if flooding else [], [], 0.02)
+        if readable:
+            data += os.read(fd, 4096)
+        if writable:
+            try:
+                os.write(fd, FLOOD_CHUNK)
+            except BlockingIOError:
+                pass
+        m = report.search(data)
+        if m or elapsed > 12:
+            break
+    if keep_flooding:
+        termios.tcflush(fd, termios.TCOFLUSH)
+    if not m:
+        return None
+    got = data[:m.start()]
+    missing = [i for i, b in enumerate(FLOOD_PATTERN) if b not in got]
+    return missing, len(got) - (len(FLOOD_PATTERN) - len(missing)), int(m.group(1))
+
+
+def test_flood_then_send(fd, keep_flooding, rounds, verbose=False):
+    name = ("send while the host floods" if keep_flooding
+            else "send after the host flooded")
+    lossy, lost, bad = 0, 0, []
+    for r in range(rounds):
+        result = flood_round(fd, keep_flooding)
+        time.sleep(0.2)
+        drain_input(fd)
+        if result is None:
+            bad.append(r)
+            if verbose:
+                print(f"   round {r}: no report", flush=True)
+            continue
+        missing, extra, accepted = result
+        if missing or extra or accepted != len(FLOOD_PATTERN):
+            lossy += 1
+            lost += len(missing)
+        if verbose and (missing or extra or accepted != len(FLOOD_PATTERN)):
+            print(f"   round {r}: missing {missing}, {extra} extra bytes,"
+                  f" write() accepted {accepted}", flush=True)
+    return check(name, lossy == 0 and not bad,
+                 f"{rounds} rounds, {lossy} with losses ({lost} bytes),"
+                 f" {len(bad)} without report")
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM0"
     fd = open_port(path)
     drain_input(fd)
+    if len(sys.argv) > 2:
+        rounds = int(sys.argv[2])
+        results = [test_flood_then_send(fd, True, rounds, verbose=True),
+                   test_flood_then_send(fd, False, rounds, verbose=True)]
+        os.close(fd)
+        sys.exit(0 if all(results) else 1)
     results = [test_peek_read(fd), test_throughput(fd)]
     ok, fd = test_host_stalled(path, fd)
     results.append(ok)
     # last: with the original DigisparkCDC these can leave the board deaf
-    results += [test_echo(fd), test_receive_only(fd)]
+    results += [test_echo(fd), test_receive_only(fd),
+                test_flood_then_send(fd, True, 5), test_flood_then_send(fd, False, 5)]
     os.close(fd)
     print(f"{sum(results)} of {len(results)} tests passed")
     sys.exit(0 if all(results) else 1)
