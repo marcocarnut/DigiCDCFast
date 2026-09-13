@@ -7,12 +7,22 @@ and Digistump LLC (digistump.com)
 
 */
 
-#include "DigiCDC.h"
+#include "DigiCDCFast.h"
 #include <stdint.h>
 #include <Arduino.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+
+/* library functions and variables start */
+static uint8_t tmp[HW_CDC_BULK_IN_SIZE];
+static uint8_t index = 0;
+
+static RingBuffer_t rxBuf;
+static uint8_t      rxBuf_Data[HW_CDC_RX_BUF_SIZE];
+
+static RingBuffer_t txBuf;
+static uint8_t      txBuf_Data[HW_CDC_TX_BUF_SIZE];
 
 uchar              sendEmptyFrame;
 static uchar       intr3Status;    /* used to control interrupt endpoint transmissions */
@@ -44,21 +54,29 @@ void DigiCDCDevice::begin(){
 
 }
 
+/* Waits while the buffer is full, since Print stops at the first rejected
+   byte; gives up (returns 0) only if the host stops reading. */
+#define WRITE_TIMEOUT_MS 50
+
 size_t DigiCDCDevice::write(uint8_t c)
 {
-    if(RingBuffer_IsFull(&txBuf))
+    unsigned long start = millis();
+    while(RingBuffer_IsFull(&txBuf))
     {
         refresh();
-        return 0;
+        if(millis() - start > WRITE_TIMEOUT_MS)
+            return 0;
     }
-    else
-    {
-        RingBuffer_Insert(&txBuf,c);
-        DigiCDCDevice::delay(5); //gives 4.2-4.7ms per character for usb transfer at low speed
-        return 1;
-    }
-    
+    RingBuffer_Insert(&txBuf,c);
+    usbPollWrapper();
+    return 1;
+}
 
+/* Wait until the host has taken all written data. */
+void DigiCDCDevice::drain()
+{
+    while(!RingBuffer_IsEmpty(&txBuf) || index > 0 || sendEmptyFrame || !usbInterruptIsReady())
+        refresh();
 }
 
 int DigiCDCDevice::available()
@@ -105,7 +123,6 @@ void DigiCDCDevice::task(void)
 
 void DigiCDCDevice::refresh(void)
 {    
-  _delay_ms(1);
   usbPollWrapper();
 }
 
@@ -159,17 +176,18 @@ void DigiCDCDevice::usbPollWrapper()
 
     if(usbInterruptIsReady())
     {
-        if(sendEmptyFrame)
-        {
-            usbSetInterrupt(tmp,0);
-            sendEmptyFrame = 0;                
-        }
-        else if(index>0)
+        if(index>0)
         {
             usbSetInterrupt(tmp,index);
             usbEnableAllRequests();
-            sendEmptyFrame = 1;
+            /* only a full packet leaves the host waiting for more */
+            sendEmptyFrame = (index == HW_CDC_BULK_IN_SIZE);
             index = 0;
+        }
+        else if(sendEmptyFrame)
+        {
+            usbSetInterrupt(tmp,0);
+            sendEmptyFrame = 0;
         }
     }
 
