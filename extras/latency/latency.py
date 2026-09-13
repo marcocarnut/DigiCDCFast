@@ -17,8 +17,6 @@ import termios
 import time
 import tty
 
-F_CPU = 16_500_000
-TICK_US = 64 / F_CPU * 1e6
 RUN_S = 20
 NAMES = {"i": "idle", "t": "sending", "r": "receiving", "b": "sending+receiving"}
 BAUDS = (4800, 9600, 19200, 38400, 57600, 115200)
@@ -61,20 +59,21 @@ def run(fd, mode):
             got = os.read(fd, 4096)
             received += len(got)
             data = (data + got)[-8192:]
+    print(f"   no report; last bytes received: {data[-200:]!r}")
     return None, received / RUN_S, sent / RUN_S
 
 
 def show(mode, nums, rx_rate, tx_rate):
-    print(f"\n== {NAMES[mode]}: host received {rx_rate:.0f} bytes/s, sent {tx_rate:.0f} bytes/s")
+    print(f"\n== {NAMES[mode]} (tick {nums[0] / 1000 if nums else 0:.2f} us): host received {rx_rate:.0f} bytes/s, sent {tx_rate:.0f} bytes/s")
     if nums is None:
         print("   no report")
         return
-    samples, late, max_ticks, hist = nums[0], nums[1], nums[2], nums[3:]
+    tick_us, samples, late, max_ticks, hist = nums[0] / 1000, nums[1], nums[2], nums[3], nums[4:]
     total = samples + late
     base = next(i for i, n in enumerate(hist) if n)
 
     def us(ticks):
-        return ticks * TICK_US
+        return ticks * tick_us
 
     def percentile(p):
         target, acc = p * samples, 0
@@ -92,7 +91,7 @@ def show(mode, nums, rx_rate, tx_rate):
     print("   P(latency > min + half a bit):")
     for baud in BAUDS:
         half_bit = 0.5e6 / baud
-        limit = base + int(half_bit / TICK_US)  # bins at or below are within budget
+        limit = base + int(half_bit / tick_us)  # bins at or below are within budget
         over = sum(hist[limit + 1:]) + late
         print(f"     {baud:6d} bps (half bit {half_bit:6.1f} us): {over / total:9.2e}  ({over} of {total})")
 
@@ -101,7 +100,7 @@ def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM0"
     modes = sys.argv[2] if len(sys.argv) > 2 else "itrb"
     fd = open_port(path)
-    print(f"tick {TICK_US:.2f} us, {RUN_S} s per mode")
+    print(f"{RUN_S} s per mode")
     for mode in modes:
         show(mode, *run(fd, mode))
         termios.tcflush(fd, termios.TCIOFLUSH)

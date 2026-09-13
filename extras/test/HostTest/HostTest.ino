@@ -29,9 +29,17 @@ static uint16_t stallAccepted;
 static void enterBootloader()
 {
   cli();
-  TIMSK = 0;   // no sketch interrupts may fire once the bootloader runs
+  // no sketch interrupts may fire once the bootloader runs
+#if defined(__AVR_ATtiny167__)
+  TIMSK0 = 0;
+  TIMSK1 = 0;
+  TCCR0B = 0;
+  TCCR1B = 0;
+#else
+  TIMSK = 0;
   TCCR0B = 0;
   TCCR1 = 0;
+#endif
   ((void (*)())0)();  // micronucleus points the reset vector at itself
 }
 
