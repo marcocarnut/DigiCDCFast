@@ -3,26 +3,27 @@
 A USB CDC serial port (`SerialUSB`) for the [Digispark](http://digistump.com/)
 (ATtiny85), built on [V-USB](https://www.obdev.at/vusb/). It is a fork of the
 DigisparkCDC library (`DigiCDC.h`) that ships with the Digistump AVR core
-1.7.5, with the limits that held it to about 200 bytes/s removed. The API is
-the same.
+1.7.5, with the limits that held it to about 160 bytes/s removed and its bugs
+fixed. The API is the same, apart from the fixes listed under
+[Migrating from DigiCDC](#migrating-from-digicdc).
 
-On Linux, a sketch that dumps data continuously went from about **115
-bytes/s** with DigisparkCDC to about **3750 bytes/s** with DigiCDCFast.
+On Linux, sending 20000 bytes went from **161 bytes/s** with DigisparkCDC to
+**8000 bytes/s** with DigiCDCFast, the most a low-speed USB interrupt endpoint
+can carry (8 bytes every millisecond).
 
 ## What was slow, and what changed
 
-All the changes are in `src/DigiCDCFast.cpp`. The first three are the
-throughput limits:
+All the changes are in `src/DigiCDCFast.cpp`. The throughput limits:
 
 1. **`write()` waited 5 ms after every byte.** It called
    `SerialUSB.delay(5)` after queuing each byte, so no sketch could send more
    than 200 bytes/s, whatever the host did. Now `write()` queues the byte and
    services USB once. When the 64-byte transmit buffer is full it keeps
-   servicing USB until there is room, and returns 0 only if the host has not
-   read anything for 50 ms. The waiting matters: a byte that `write()`
-   rejects is lost, since Arduino's `Print` functions either skip it or stop
-   printing. The old 5 ms delay was, in effect, crude flow control that kept
-   `println()` from losing data.
+   servicing USB until there is room: a byte that `write()` rejects is lost
+   (`print("...")` skips it, `print(F("..."))` stops printing). If the host
+   takes nothing for 50 ms, as when no program has the port open, `write()`
+   returns 0 immediately from then on until there is room again, so a sketch
+   printing to nobody doesn't slow down.
 2. **`refresh()` waited 1 ms before every USB poll.** `available()`, `read()`
    and `delay()` all call `refresh()`, so every call cost at least 1 ms. The
    delay is gone.
@@ -31,14 +32,34 @@ throughput limits:
    is over; sending one after every packet halved the number of data packets
    the host could take. Now it is sent only after full packets.
 
+The bugs:
+
+4. **Receiving stalled in sketches that don't write.** When 8 bytes were
+   waiting in the receive buffer, DigisparkCDC paused input (the host gets
+   NAKs), but resumed it only when the sketch *sent* a packet. A sketch that
+   only reads received 8 bytes and then nothing, forever; V-USB also refuses
+   control requests while input is paused. Now input resumes as soon as a
+   full packet fits in the receive buffer again, and is paused only when the
+   32-byte buffer can't take another 8-byte packet.
+5. **Received data could be lost while sending.** DigisparkCDC re-enabled
+   input after every packet sent, but V-USB allows that only while input is
+   paused: re-enabling it otherwise discards a received packet that is still
+   waiting to be processed. Now it is re-enabled only when paused.
+6. **`flush()` discarded received data.** It now waits until the host has
+   taken everything written, as Arduino's `Stream` has done since 1.0, with
+   the same 50 ms timeout as `write()`.
+7. **`read()` and `peek()` returned 0 when there was nothing to read**, which
+   is indistinguishable from a received zero byte. They now return -1.
+8. **`begin(unsigned long)` was declared but not implemented**, so calling
+   `SerialUSB.begin(9600)` failed to link. It now works; the baud rate is
+   ignored, as it means nothing over USB.
+
 Also:
 
-4. **New `drain()`** waits until the host has taken everything written so
-   far.
-5. The ring buffers used to be `static` variables defined in the header, so
+9. The ring buffers used to be `static` variables defined in the header, so
    every file that included it got its own unused copy. They are now defined
    in the `.cpp`.
-6. The transmit buffer is 64 bytes instead of 32.
+10. The transmit buffer is 64 bytes instead of 32.
 
 The header and source were renamed `DigiCDCFast.h` / `DigiCDCFast.cpp` so the
 library can be installed next to the core's DigisparkCDC. The class is still
@@ -46,43 +67,53 @@ library can be installed next to the core's DigisparkCDC. The class is still
 unchanged.
 
 The git history starts with the unmodified DigisparkCDC files from the
-1.7.5 core, so the second commit shows exactly what changed
-(`git show -M20% $(git rev-list --reverse HEAD | sed -n 2p)`).
+1.7.5 core, so the later commits show exactly what changed
+(`git show -M20% $(git rev-list --reverse HEAD | sed -n 2p)` for the first
+set of changes).
 
-## Measurements
+## Tests
 
-| Library      | Continuous dump |
-|--------------|-----------------|
-| DigisparkCDC | ~115 bytes/s    |
-| DigiCDCFast  | ~3750 bytes/s   |
+`extras/test/HostTest` is a sketch that runs tests on command from
+`extras/test/hosttest.py` on the host. It builds against either library (see
+its header comment). Results with the same board, host and test program:
+
+| Test | DigisparkCDC | DigiCDCFast |
+|------|--------------|-------------|
+| `peek()` / `read()` with nothing to read | 0 / 0 | -1 / -1 |
+| Send 20000 bytes | 161 bytes/s (incomplete after 30 s) | 8000 bytes/s, intact |
+| Receive 2000 bytes without writing | 8 arrived, then stalled | 2000 arrived, intact |
+| Echo 2000 bytes while receiving | failed* | 2000 echoed, identical |
+| Write 300 bytes with nobody reading | not measured* | 54 ms, then `flush()` returns at once |
+
+\* DigisparkCDC was still sending the 20000 bytes long after the host had
+moved on to these tests, so their results say nothing.
+
+With DigisparkCDC the board also became permanently deaf once: bytes were
+left in the receive buffer, the sketch read them without writing anything,
+and input was never resumed (bug 4).
 
 Test conditions:
 
 - Digispark (ATtiny85) at 16.5 MHz (`digistump:avr:digispark-tiny:clock=clock165`),
-  Digistump AVR core 1.7.5.
+  Digistump AVR core 1.7.5, micronucleus 2.6 bootloader.
 - Linux 6.8 on an xHCI (USB 3) host controller. DigiCDC declares bulk
   endpoints, which the USB specification does not allow on low-speed devices;
   Linux converts them to interrupt endpoints polled every 1 ms with 8-byte
   packets (the kernel logs "endpoint 0x81 is Bulk; changing to Interrupt").
-- A sketch that sends binary data as fast as it can, read on the host from
-  `/dev/ttyACM0`. No USB errors were logged during the test.
-
-With 8-byte packets every 1 ms the ceiling would be 8000 bytes/s; what limits
-the rate to about half of that has not been investigated.
-
-The `Throughput` example and `extras/throughput.py` in this repository
-reproduce the test, but they were written after the measurement above and
-have not yet been run on hardware.
+- No USB errors were logged.
 
 ## Not tested
 
 - **Windows and macOS.** Only Linux has been tested. Hosts that follow the
   USB specification strictly may refuse DigiCDC's low-speed bulk endpoints
-  (this is true of DigisparkCDC as well).
+  (this is true of DigisparkCDC as well), and their polling intervals, and so
+  the throughput, may differ.
 - **Digispark Pro (ATtiny167).** `src/usbboardconfig.h` has settings for it,
   inherited from DigisparkCDC, but it has not been built or tried.
 - Other clock settings, older USB host controllers (EHCI/OHCI/UHCI), hubs.
 - `setDtrPin()` (the `CDC_DTR_LED` example).
+- The `Throughput` example and `extras/throughput.py` have not been run on
+  hardware; `HostTest` measured the throughput above.
 
 Reports, good or bad, are welcome.
 
@@ -102,43 +133,36 @@ Change the include:
 #include <DigiCDCFast.h>  // after
 ```
 
-Nothing else needs to change. Don't include both in the same sketch: they
-define the same class, object and USB callbacks.
+Don't include both in the same sketch: they define the same class, object
+and USB callbacks.
 
 Things that behave differently:
 
 - **Printing is no longer paced at 5 ms per byte.** If your host program
   relied on that (for example a slow reader with no flow control), it now
   gets data much faster.
-- **`write()` can block for up to 50 ms per byte when nobody is reading.** On
-  Linux the host stops reading when no program has the port open, so a
-  sketch that prints with no terminal attached slows down: once the buffer
-  is full, each byte of `print("...")` waits 50 ms before being dropped
-  (`print(F("..."))` gives up after the first dropped byte). DigisparkCDC
-  took about 1 ms per dropped byte instead. If this matters, print only
-  when there is something to read the output, or less often.
-- **`drain()` is new.** Call it before something that stops servicing USB
-  (sleeping, a long computation, `end()`) if the data already written must
-  arrive. It waits as long as it takes; it does not time out.
+- **`read()` and `peek()` return -1 when there is nothing to read.** Code
+  that treated 0 as "nothing" needs to check for -1, or call `available()`
+  first (which works with both libraries).
+- **`flush()` waits for output instead of discarding input.** To discard
+  received data, use `while (SerialUSB.available()) SerialUSB.read();`.
 
 ## Usage notes
 
-These are unchanged from DigisparkCDC:
-
 - **Call a `SerialUSB` function at least every ~10 ms.** V-USB has no
   background task: USB is serviced only inside `write()`, `print()`,
-  `read()`, `available()`, `refresh()`, `delay()` and `drain()`. If your
-  sketch does anything longer, call `SerialUSB.refresh()` in between, and
-  use `SerialUSB.delay(ms)` instead of `delay(ms)`. Otherwise the host may
-  reset or drop the device.
-- `SerialUSB.begin()` takes no baud rate (`begin(unsigned long)` is declared
-  but not implemented) and waits 500 ms for enumeration.
-- `read()` and `peek()` return 0, not -1, when there is nothing to read;
-  check `available()` first.
-- `flush()` discards received data; it does not wait for output. Use
-  `drain()` for that.
-- Output sent before a program opens the port on the host is lost, except
-  for what fits in the buffer.
+  `read()`, `peek()`, `available()`, `flush()`, `refresh()` and `delay()`. If
+  your sketch does anything longer, call `SerialUSB.refresh()` in between,
+  and use `SerialUSB.delay(ms)` instead of `delay(ms)`. Otherwise the host may
+  reset or drop the device. (Unchanged from DigisparkCDC.)
+- Call `flush()` before something that stops servicing USB (sleeping, a long
+  computation, `end()`) if the data already written must arrive.
+- `SerialUSB.begin()` waits 500 ms for enumeration.
+- Output sent while no program has the port open on the host is lost, except
+  for what fits in the buffer, which arrives when a program opens it.
+- A sketch that doesn't read what the host sends eventually pauses input,
+  and the host blocks writing (and opening or closing the port) until the
+  sketch reads again.
 
 ## Examples
 
@@ -154,11 +178,12 @@ These are unchanged from DigisparkCDC:
 ## Repository layout
 
 ```
-library.properties   Arduino library metadata
-src/                 DigiCDCFast.{h,cpp} and V-USB (with V-USB's Readme.txt and Changelog.txt)
-examples/            example sketches
-extras/throughput.py host-side throughput meter
-License.txt          V-USB license (GPL-2.0 or GPL-3.0)
+library.properties     Arduino library metadata
+src/                   DigiCDCFast.{h,cpp} and V-USB (with V-USB's Readme.txt and Changelog.txt)
+examples/              example sketches
+extras/throughput.py   host-side throughput meter
+extras/test/           hardware test: HostTest sketch and hosttest.py
+License.txt            V-USB license (GPL-2.0 or GPL-3.0)
 CommercialLicense.txt  V-USB's commercial license terms, as distributed with V-USB
 ```
 
