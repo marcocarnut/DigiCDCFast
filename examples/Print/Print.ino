@@ -1,10 +1,11 @@
 /******************************************************************************
- * Attention!
- * This example likely will not work with 
- * windows versions > XP and current Linux kernels
- * see: http://digistump.com/board/index.php/topic,2720.msg13422.html#msg13422
+ * Adapted from the DigisparkCDC examples of the Digistump AVR core 1.7.5.
+ * DigiCDC uses low-speed bulk endpoints, which the USB specification does not
+ * allow, so some hosts may refuse the device. Only Linux has been tested with
+ * DigiCDCFast; see README.md. Older notes on host compatibility:
+ * http://digistump.com/board/index.php/topic,2720.msg13422.html#msg13422
  ******************************************************************************/
- #include <DigiCDC.h>
+#include <DigiCDCFast.h>
 void setup() {                
   // initialize the digital pin as an output.
   SerialUSB.begin(); 
