@@ -54,8 +54,9 @@ void DigiCDCDevice::begin(){
 
 }
 
-/* Waits while the buffer is full, since Print stops at the first rejected
-   byte; gives up (returns 0) only if the host stops reading. */
+/* Waits while the buffer is full, since a rejected byte is lost (Print
+   skips it, or stops printing); gives up (returns 0) only if the host
+   stops reading. */
 #define WRITE_TIMEOUT_MS 50
 
 size_t DigiCDCDevice::write(uint8_t c)
