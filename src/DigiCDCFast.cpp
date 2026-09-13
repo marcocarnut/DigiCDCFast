@@ -24,6 +24,8 @@ static uint8_t      rxBuf_Data[HW_CDC_RX_BUF_SIZE];
 static RingBuffer_t txBuf;
 static uint8_t      txBuf_Data[HW_CDC_TX_BUF_SIZE];
 
+static bool         hostStalled;    /* host stopped reading: don't wait for room */
+
 uchar              sendEmptyFrame;
 static uchar       intr3Status;    /* used to control interrupt endpoint transmissions */
 static uchar       portB_dtr_bit;
@@ -41,10 +43,36 @@ void DigiCDCDevice::delay(long milli) {
   }
 }
 
+/* How long write() and flush() wait for the host to take data before
+   deciding it has stopped reading (e.g. no program has the port open). */
+#define HOST_TIMEOUT_MS 50
+
+static uint8_t txPending()
+{
+    return RingBuffer_GetCount(&txBuf) + index;
+}
+
+/* Wait until the host has taken everything written, as in Arduino 1.0 and
+   later (DigiCDC's flush() discarded received data instead). Gives up after
+   HOST_TIMEOUT_MS without progress. */
 void DigiCDCDevice::flush(){
-    cli();
-    RingBuffer_InitBuffer(&rxBuf,rxBuf_Data,sizeof(rxBuf_Data));
-    sei(); 
+    unsigned long start = millis();
+    uint8_t pending = txPending();
+    while(pending > 0 || sendEmptyFrame || !usbInterruptIsReady())
+    {
+        refresh();
+        if(txPending() < pending)
+        {
+            pending = txPending();
+            start = millis();
+            hostStalled = false;
+        }
+        else if(hostStalled || millis() - start > HOST_TIMEOUT_MS)
+        {
+            hostStalled = true;
+            return;
+        }
+    }
 }
 
 void DigiCDCDevice::begin(){
@@ -54,30 +82,32 @@ void DigiCDCDevice::begin(){
 
 }
 
-/* Waits while the buffer is full, since a rejected byte is lost (Print
-   skips it, or stops printing); gives up (returns 0) only if the host
-   stops reading. */
-#define WRITE_TIMEOUT_MS 50
+void DigiCDCDevice::begin(unsigned long){  /* baud rate is meaningless over USB */
+    begin();
+}
 
+/* Waits while the buffer is full, since a rejected byte is lost (Print
+   skips it, or stops printing). If the host doesn't take data for
+   HOST_TIMEOUT_MS, bytes are rejected immediately until there is room again,
+   so a sketch printing with no program reading doesn't slow to a crawl. */
 size_t DigiCDCDevice::write(uint8_t c)
 {
     unsigned long start = millis();
     while(RingBuffer_IsFull(&txBuf))
     {
         refresh();
-        if(millis() - start > WRITE_TIMEOUT_MS)
+        if(!RingBuffer_IsFull(&txBuf))
+            break;
+        if(hostStalled || millis() - start > HOST_TIMEOUT_MS)
+        {
+            hostStalled = true;
             return 0;
+        }
     }
+    hostStalled = false;
     RingBuffer_Insert(&txBuf,c);
     usbPollWrapper();
     return 1;
-}
-
-/* Wait until the host has taken all written data. */
-void DigiCDCDevice::drain()
-{
-    while(!RingBuffer_IsEmpty(&txBuf) || index > 0 || sendEmptyFrame || !usbInterruptIsReady())
-        refresh();
 }
 
 int DigiCDCDevice::available()
@@ -88,30 +118,18 @@ int DigiCDCDevice::available()
 
 int DigiCDCDevice::read()
 {
+    refresh();
     if(RingBuffer_IsEmpty(&rxBuf))
-    {
-        refresh();
-        return 0;
-    }
-    else
-    {
-        refresh();
-        return RingBuffer_Remove(&rxBuf);
-    }
-   
+        return -1;
+    return RingBuffer_Remove(&rxBuf);
 }
 
 int DigiCDCDevice::peek()
 {
-    if(RingBuffer_IsEmpty(&rxBuf))
-    {
-        return 0;
-    }
-    else
-    {
-        return RingBuffer_Peek(&rxBuf);
-    }
     refresh();
+    if(RingBuffer_IsEmpty(&rxBuf))
+        return -1;
+    return RingBuffer_Peek(&rxBuf);
 }
 
 
@@ -163,6 +181,7 @@ void DigiCDCDevice::usbBegin()
 
     intr3Status = 0;
     sendEmptyFrame = 0;
+    hostStalled = false;
     portB_dtr_bit = 255;
     sei();   
 }
@@ -170,6 +189,12 @@ void DigiCDCDevice::usbBegin()
 void DigiCDCDevice::usbPollWrapper()
 {
     usbPoll();
+    /* Resume input paused by usbFunctionWriteOut() once a full packet fits.
+       V-USB allows this only while requests are disabled; enabling them
+       unconditionally (as DigiCDC did on every packet sent) discards a
+       received packet that is waiting to be processed. */
+    if(usbAllRequestsAreDisabled() && RingBuffer_GetFreeCount(&rxBuf) >= HW_CDC_BULK_OUT_SIZE)
+        usbEnableAllRequests();
     while((!(RingBuffer_IsEmpty(&txBuf)))&&(index<8))
     {
         tmp[index++] = RingBuffer_Remove(&txBuf);
@@ -180,7 +205,6 @@ void DigiCDCDevice::usbPollWrapper()
         if(index>0)
         {
             usbSetInterrupt(tmp,index);
-            usbEnableAllRequests();
             /* only a full packet leaves the host waiting for more */
             sendEmptyFrame = (index == HW_CDC_BULK_IN_SIZE);
             index = 0;
@@ -396,7 +420,8 @@ void usbFunctionWriteOut( uchar *data, uchar len )
     }
 
     /* postpone receiving next data */
-    if(RingBuffer_GetCount(&rxBuf) >= HW_CDC_BULK_OUT_SIZE)
+    /* pause input (the host gets NAKs) until another full packet fits */
+    if(RingBuffer_GetFreeCount(&rxBuf) < HW_CDC_BULK_OUT_SIZE)
     {
         usbDisableAllRequests();
     }
