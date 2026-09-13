@@ -102,6 +102,28 @@ Test conditions:
   packets (the kernel logs "endpoint 0x81 is Bulk; changing to Interrupt").
 - No USB errors were logged.
 
+## Interrupt latency
+
+V-USB handles every USB transaction inside an interrupt that can't be
+interrupted, so it delays every other interrupt in the sketch. Even when idle
+the host polls the IN endpoint every millisecond, and each poll runs the
+handler. `extras/latency/LatencyProbe` measures how late a timer interrupt
+runs (3.88 us resolution, 20 s per case, `extras/latency/latency.py` on the
+host); same board and host as above:
+
+| USB activity | Delayed at all | 99% | 99.9% | Max |
+|--------------|----------------|-----|-------|-----|
+| Idle | 3% | 27 us | 39 us | 39 us |
+| Sketch sending 8000 bytes/s | 10% | 82 us | 93 us | 97 us |
+| Sketch receiving 5500 bytes/s | 10% | 93 us | 105 us | 109 us |
+| Both | 14% | 97 us | 105 us | 198 us |
+
+For timing-sensitive code this is the budget. For example, a software UART
+that samples each bit in its middle after catching the start bit misreads a
+byte whenever the start bit is caught more than half a bit late. That
+happens to 1.4% of interrupts at 19200 bps with USB idle, and 4-6% at
+9600 bps while data is flowing.
+
 ## Not tested
 
 - **Windows and macOS.** Only Linux has been tested. Hosts that follow the
@@ -183,6 +205,7 @@ src/                   DigiCDCFast.{h,cpp} and V-USB (with V-USB's Readme.txt an
 examples/              example sketches
 extras/throughput.py   host-side throughput meter
 extras/test/           hardware test: HostTest sketch and hosttest.py
+extras/latency/        interrupt latency probe: LatencyProbe sketch and latency.py
 License.txt            V-USB license (GPL-2.0 or GPL-3.0)
 CommercialLicense.txt  V-USB's commercial license terms, as distributed with V-USB
 ```
