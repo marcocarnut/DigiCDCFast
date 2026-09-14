@@ -232,8 +232,13 @@ Every request reached the board and was answered correctly, so these are
 Windows' decisions about the descriptors, not transfer problems. (Linux
 treats both versions the same: it turns bulk endpoints into interrupt
 endpoints itself, and all the tests pass either way.) V-USB serial projects
-used to rely on a third-party filter driver on Windows to accept low-speed
-bulk endpoints; it isn't signed for, or available on, current 64-bit Windows.
+used a third-party filter driver on Windows: Digistump's driver package
+installs `lowcdc.sys` (Osamu Tamura's Low Speed CDC Driver, 2009, signed,
+64-bit) below `usbser.sys`, meant for interrupt data endpoints. On
+Windows 10 it crashed the system (blue screen) as soon as the device with
+interrupt endpoints was attached, with the virtual machine emulating a USB 3
+controller and again with a USB 2 controller; with bulk endpoints Windows
+rejects the device before the driver loads.
 
 ## Not tested
 
