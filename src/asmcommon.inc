@@ -131,18 +131,24 @@ handleIn:
 ;We don't send any data as long as the C code has not processed the current
 ;input data and potentially updated the output data. That's more efficient
 ;in terms of code size than clearing the tx buffers when a packet is received.
-    lds     x1, usbRxLen        ;[30]
-    cpi     x1, 1               ;[32] negative values are flow control, 0 means "buffer free"
-    brge    sendNakAndReti      ;[33] unprocessed input packet?
-    ldi     x1, USBPID_NAK      ;[34] prepare value for usbTxLen
+;DigiCDCFast: only on endpoint 0, where the reply depends on the request.
+;Interrupt endpoint data doesn't depend on received data, and checking there
+;starved them whenever the host sent continuously: it polls IN right after
+;each OUT transaction, before usbPoll() has processed the packet. The
+;endpoint 0 path keeps its original timing ([37] at usbTxLen); the interrupt
+;endpoints reach handleIn1 4 cycles earlier than before.
+    ldi     x1, USBPID_NAK      ;[30] prepare value for usbTxLen
 #if USB_CFG_HAVE_INTRIN_ENDPOINT
-    andi    x3, 0xf             ;[35] x3 contains endpoint
+    andi    x3, 0xf             ;[31] x3 contains endpoint
 #if USB_CFG_SUPPRESS_INTR_CODE
-    brne    sendNakAndReti      ;[36]
+    brne    sendNakAndReti      ;[32]
 #else
-    brne    handleIn1           ;[36]
+    brne    handleIn1           ;[32]
 #endif
 #endif
+    lds     x2, usbRxLen        ;[33]
+    cpi     x2, 1               ;[35] negative values are flow control, 0 means "buffer free"
+    brge    sendNakAndReti      ;[36] unprocessed input packet?
     lds     cnt, usbTxLen       ;[37]
     sbrc    cnt, 4              ;[39] all handshake tokens have bit 4 set
     rjmp    sendCntAndReti      ;[40] 42 + 16 = 58 until SOP

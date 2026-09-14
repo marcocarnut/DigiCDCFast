@@ -58,19 +58,30 @@ The bugs:
    and reported back, and `SerialUSB.baud()` returns the bit rate the host
    set (for example with `stty`), which a USB-serial bridge needs.
 
+10. **Output starved while the host sent continuously.** V-USB answered the
+    host's IN polls with NAK whenever a received packet was still waiting for
+    `usbPoll()`, and the host polls IN right after each OUT transaction. For
+    endpoint 0 that is needed (the reply depends on the request), but the
+    data endpoints don't depend on received data. `handleIn` in
+    `src/asmcommon.inc` now checks only for endpoint 0; its timing is
+    unchanged, and the data endpoints reach their reply 4 cycles sooner. In
+    a USB-UART bridge on a Digispark Pro at 57600 bps in both directions at
+    once, data to the host went from 41% lost to 0.33% (the rest being UART
+    receive overruns).
+
 Also:
 
-10. `availableForWrite()` returns the free space in the transmit buffer, so a
+11. `availableForWrite()` returns the free space in the transmit buffer, so a
     sketch can avoid blocking in `write()`.
-11. The ring buffers used to be `static` variables defined in the header, so
+12. The ring buffers used to be `static` variables defined in the header, so
    every file that included it got its own unused copy. They are now defined
    in the `.cpp`.
-12. The transmit buffer is 64 bytes instead of 32.
+13. The transmit buffer is 64 bytes instead of 32.
 
 The header and source were renamed `DigiCDCFast.h` / `DigiCDCFast.cpp` so the
 library can be installed next to the core's DigisparkCDC. The class is still
-`DigiCDCDevice` and the object is still `SerialUSB`. V-USB itself is
-unchanged.
+`DigiCDCDevice` and the object is still `SerialUSB`. V-USB is changed in one
+place (item 10).
 
 The git history starts with the unmodified DigisparkCDC files from the
 1.7.5 core, so the later commits show exactly what changed
@@ -107,6 +118,8 @@ Test conditions:
   Linux converts them to interrupt endpoints polled every 1 ms with 8-byte
   packets (the kernel logs "endpoint 0x81 is Bulk; changing to Interrupt").
 - No USB errors were logged.
+- The same tests pass on a Digispark Pro (ATtiny167, 16 MHz crystal) with
+  the core fix described below.
 
 ## Interrupt latency
 
@@ -130,28 +143,48 @@ byte whenever the start bit is caught more than half a bit late. That
 happens to 1.4% of interrupts at 19200 bps with USB idle, and 4-6% at
 9600 bps while data is flowing.
 
-## Known issue: lost packets under heavy two-way traffic
+## Digispark Pro: the core's millis interrupt must not block
 
-The `flood` tests in `extras/test/hosttest.py` found two ways a packet sent
-to the host can be lost (Digispark Pro, Linux/xHCI):
+On the Digispark Pro, packets sent to the host get lost unless the core is
+fixed. The Digistump AVR core 1.7.5 runs `millis()` on Timer0 with a
+blocking interrupt handler, `SIGNAL(TIMER0_OVF_vect)` in `cores/pro/wiring.c`.
+It overflows at 976.56 Hz, beating against the host's 1000 Hz USB frames, so
+every 42.7 ms it delays V-USB just as the host polls, and the transaction
+fails. V-USB has already counted the data as sent, so it is lost. (The
+ATtiny85 core uses a non-blocking handler for this reason.)
 
-- **The first packet after heavy receiving.** When the host sends a lot of
-  data and the sketch sends nothing for a while, the first packet the sketch
-  sends afterwards was dropped every time while the host kept sending, and in
-  8 of 40 tries after it had stopped. It behaves like a data toggle mismatch:
-  the host resets its side of the endpoint after transaction errors without
-  telling the device. DigiCDCFast now sends an empty packet ahead of new data
-  after 10 ms without sending, which absorbs the loss: 0 of 40 tries lost data
-  after the host stopped.
-- **Occasional packets while both directions are saturated.** With the host
-  flooding the sketch while it sends, about 1 round in 20 still lost one
-  8-byte packet. V-USB marks a packet as delivered as soon as it sends it,
-  without waiting for the host's acknowledgement ("the rest of the driver
-  assumes error-free transfers anyway", `src/asmcommon.inc`), so a packet the
-  host didn't receive correctly is never sent again.
+Change that line to
 
-If a sketch receives and sends heavily at the same time, check data at the
-application level.
+```c
+ISR(TIMER0_OVF_vect, ISR_NOBLOCK)
+```
+
+Measured with usbmon while the sketch sent one byte per millisecond and the
+host flooded it: 259 failed IN transactions and 1.5% of the bytes lost with
+the original core, none of either with the change.
+
+The same applies to a sketch's own interrupt handlers: any handler that
+keeps interrupts off for more than a few microseconds when USB traffic
+arrives makes transactions fail. Handlers that run often should mask their
+own interrupt and re-enable interrupts (see the bridge in
+[digibridge](https://github.com/FILL-IN-GITHUB-USER/digibridge)).
+
+## Heavy two-way traffic
+
+The `flood` tests in `extras/test/hosttest.py` send data to the host while
+the host floods the sketch. Before the core fix above, on the Digispark Pro,
+the first packet sent after heavy receiving was lost in 8 to 40 of 40 rounds,
+and about 1 round in 20 lost a packet while both directions were saturated.
+With the core fix, 40 of 40 rounds of each lost nothing, with or without the
+empty packet DigiCDCFast sends ahead of data after 10 ms idle (a workaround
+added before the cause was found; it is kept until the flood tests have run
+on an ATtiny85 Digispark as well).
+
+V-USB still marks a packet as delivered as soon as it sends it, without
+waiting for the host's acknowledgement ("the rest of the driver assumes
+error-free transfers anyway", `src/asmcommon.inc`), so a transaction that
+fails for any reason loses its data. An attempt to wait for the ACK instead
+made things worse on this host (duplicated data), so it is not included.
 
 ## Not tested
 
@@ -159,8 +192,6 @@ application level.
   USB specification strictly may refuse DigiCDC's low-speed bulk endpoints
   (this is true of DigisparkCDC as well), and their polling intervals, and so
   the throughput, may differ.
-- **Digispark Pro (ATtiny167).** `src/usbboardconfig.h` has settings for it,
-  inherited from DigisparkCDC, but it has not been built or tried.
 - Other clock settings, older USB host controllers (EHCI/OHCI/UHCI), hubs.
 - `setDtrPin()` (the `CDC_DTR_LED` example).
 - The `Throughput` example and `extras/throughput.py` have not been run on
