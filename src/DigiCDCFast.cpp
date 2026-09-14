@@ -213,7 +213,7 @@ void DigiCDCDevice::usbPollWrapper()
        received packet that is waiting to be processed. */
     if(usbAllRequestsAreDisabled() && RingBuffer_GetFreeCount(&rxBuf) >= HW_CDC_BULK_OUT_SIZE)
         usbEnableAllRequests();
-    while((!(RingBuffer_IsEmpty(&txBuf)))&&(index<8))
+    while((!(RingBuffer_IsEmpty(&txBuf)))&&(index<HW_CDC_BULK_IN_SIZE))
     {
         tmp[index++] = RingBuffer_Remove(&txBuf);
     }

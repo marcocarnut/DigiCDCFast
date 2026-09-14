@@ -143,6 +143,19 @@ byte whenever the start bit is caught more than half a bit late. That
 happens to 1.4% of interrupts at 19200 bps with USB idle, and 4-6% at
 9600 bps while data is flowing.
 
+### Shorter USB packets
+
+Most of that time is the packet itself: V-USB receives or sends every bit
+with interrupts off. A transaction carrying 8 bytes keeps them off for
+~110 us, one carrying 2 bytes for ~73 us. The packet sizes can be set for the
+whole build (1 to 8 bytes; default 8), which caps throughput at 1000 packets
+per second in each direction:
+
+    arduino-cli compile ... --build-property "build.extra_flags=-DHW_CDC_BULK_OUT_SIZE=2 -DHW_CDC_BULK_IN_SIZE=2"
+
+The ATtiny85 USB-UART bridge `TinyBridge` (in the companion digibridge
+project) uses 2-byte packets to transmit at 9600 bps.
+
 ## Digispark Pro: the core's millis interrupt must not block
 
 On the Digispark Pro, packets sent to the host get lost unless the core is
