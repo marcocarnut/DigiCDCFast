@@ -125,6 +125,8 @@ Test conditions:
 - No USB errors were logged.
 - The same tests pass on a Digispark Pro (ATtiny167, 16 MHz crystal) with
   the core fix described below.
+- They also pass, with the same throughput and no USB errors, on a
+  Raspberry Pi 5 (Raspberry Pi OS, Linux 6.12, RP1 xHCI controller).
 
 ## Interrupt latency
 
