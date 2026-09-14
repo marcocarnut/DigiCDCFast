@@ -216,12 +216,30 @@ error-free transfers anyway", `src/asmcommon.inc`), so a transaction that
 fails for any reason loses its data. An attempt to wait for the ACK instead
 made things worse on this host (duplicated data), so it is not included.
 
+## Windows: does not work
+
+Windows 10 refuses a USB CDC serial port on a low-speed device, whichever way
+its data endpoints are declared. This applies to DigisparkCDC and other V-USB
+serial devices as well. Tested in a Windows 10 virtual machine (VMware, USB
+passthrough), with usbmon on the Linux host recording every request:
+
+| Data endpoints | What Windows does |
+|----------------|-------------------|
+| Bulk (as here; the USB specification doesn't allow them at low speed) | Reads the device and configuration descriptors correctly, then rejects the configuration and resets the device, over and over: "USB device not recognized". |
+| Interrupt (1 ms; an experiment, not in the library) | Configures the device and creates a COM port, but its serial driver, `usbser.sys`, refuses to start (Code 10) without sending a single request to the device. |
+
+Every request reached the board and was answered correctly, so these are
+Windows' decisions about the descriptors, not transfer problems. (Linux
+treats both versions the same: it turns bulk endpoints into interrupt
+endpoints itself, and all the tests pass either way.) V-USB serial projects
+used to rely on a third-party filter driver on Windows to accept low-speed
+bulk endpoints; it isn't signed for, or available on, current 64-bit Windows.
+
 ## Not tested
 
-- **Windows and macOS.** Only Linux has been tested. Hosts that follow the
-  USB specification strictly may refuse DigiCDC's low-speed bulk endpoints
-  (this is true of DigisparkCDC as well), and their polling intervals, and so
-  the throughput, may differ.
+- **macOS.** Hosts that follow the USB specification strictly may refuse
+  DigiCDC's low-speed bulk endpoints, as Windows does, and polling intervals,
+  and so the throughput, may differ.
 - Other clock settings, older USB host controllers (EHCI/OHCI/UHCI), hubs.
 - `setDtrPin()` (the `CDC_DTR_LED` example).
 - The `Throughput` example and `extras/throughput.py` have not been run on
