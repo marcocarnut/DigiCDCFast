@@ -127,7 +127,7 @@ Test conditions:
   the core fix described below.
 - They also pass, with the same throughput and no USB errors, on a
   Raspberry Pi 5 (Raspberry Pi OS, Linux 6.12, RP1 xHCI controller), in a
-  USB 2 port and both USB 3 ports. Once a USB 3 port couldn't enumerate the
+  USB 2 port and both USB 3 ports, and with `DigiCDCMedium.h` (2000 bytes/s). Once a USB 3 port couldn't enumerate the
   board at all, the bootloader included (error -71); plugged in again, it
   worked. The Digispark's bare PCB plug doesn't always make good contact.
 
