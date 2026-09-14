@@ -126,7 +126,10 @@ Test conditions:
 - The same tests pass on a Digispark Pro (ATtiny167, 16 MHz crystal) with
   the core fix described below.
 - They also pass, with the same throughput and no USB errors, on a
-  Raspberry Pi 5 (Raspberry Pi OS, Linux 6.12, RP1 xHCI controller).
+  Raspberry Pi 5 (Raspberry Pi OS, Linux 6.12, RP1 xHCI controller), in a
+  USB 2 port and both USB 3 ports. Once a USB 3 port couldn't enumerate the
+  board at all, the bootloader included (error -71); plugged in again, it
+  worked. The Digispark's bare PCB plug doesn't always make good contact.
 
 ## Interrupt latency
 
