@@ -130,6 +130,9 @@ Test conditions:
   USB 2 port and both USB 3 ports, and with `DigiCDCMedium.h` (2000 bytes/s). Once a USB 3 port couldn't enumerate the
   board at all, the bootloader included (error -71); plugged in again, it
   worked. The Digispark's bare PCB plug doesn't always make good contact.
+- And on a Raspberry Pi 3 Model B (Raspbian 10, Linux 4.19), where the board
+  sits behind the Pi's built-in USB 2 hub on the older `dwc_otg` controller:
+  both variants, 8000 and 2000 bytes/s, no USB errors.
 
 ## Interrupt latency
 
