@@ -1,7 +1,8 @@
 # DigiCDCFast
 
 A USB CDC serial port (`SerialUSB`) for the [Digispark](http://digistump.com/)
-(ATtiny85), built on [V-USB](https://www.obdev.at/vusb/). It is a fork of the
+(ATtiny85) and Digispark Pro (ATtiny167), built on
+[V-USB](https://www.obdev.at/vusb/). It is a fork of the
 DigisparkCDC library (`DigiCDC.h`) that ships with the Digistump AVR core
 1.7.5, with the limits that held it to about 160 bytes/s removed and its bugs
 fixed. The API is the same, apart from the fixes listed under
@@ -78,6 +79,10 @@ Also:
    in the `.cpp`.
 13. The transmit buffer is 64 bytes instead of 32.
 
+14. `DigiCDCMedium.h` offers the same library with 2-byte USB packets, for
+    sketches with tight timing of their own (see
+    [Shorter USB packets](#shorter-usb-packets-digicdcmediumh)).
+
 The header and source were renamed `DigiCDCFast.h` / `DigiCDCFast.cpp` so the
 library can be installed next to the core's DigisparkCDC. The class is still
 `DigiCDCDevice` and the object is still `SerialUSB`. V-USB is changed in one
@@ -143,18 +148,24 @@ byte whenever the start bit is caught more than half a bit late. That
 happens to 1.4% of interrupts at 19200 bps with USB idle, and 4-6% at
 9600 bps while data is flowing.
 
-### Shorter USB packets
+### Shorter USB packets: DigiCDCMedium.h
 
 Most of that time is the packet itself: V-USB receives or sends every bit
 with interrupts off. A transaction carrying 8 bytes keeps them off for
-~110 us, one carrying 2 bytes for ~73 us. The packet sizes can be set for the
-whole build (1 to 8 bytes; default 8), which caps throughput at 1000 packets
-per second in each direction:
+~110 us, one carrying 2 bytes for ~73 us. For a sketch whose own timing can't
+wait that long, include `DigiCDCMedium.h` instead of `DigiCDCFast.h`:
 
-    arduino-cli compile ... --build-property "build.extra_flags=-DHW_CDC_BULK_OUT_SIZE=2 -DHW_CDC_BULK_IN_SIZE=2"
+```cpp
+#include <DigiCDCMedium.h>  // 2-byte packets: at most ~2000 bytes/s each way
+```
 
-The ATtiny85 USB-UART bridge `TinyBridge` (in the companion digibridge
-project) uses 2-byte packets to transmit at 9600 bps.
+Everything else is the same. Include it in one file of the sketch only (it
+defines the USB configuration descriptor, which the linker then takes over
+the library's 8-byte one). For other packet sizes, 1 to 8 bytes, copy
+`src/DigiCDCMedium.h` into the sketch and change the numbers. Most sketches
+want `DigiCDCFast.h`; this is for cases like a software UART sharing the CPU
+with V-USB. `HostTest` passes all its tests either way (2000 bytes/s with
+2-byte packets).
 
 ## Digispark Pro: the core's millis interrupt must not block
 
@@ -179,8 +190,8 @@ the original core, none of either with the change.
 The same applies to a sketch's own interrupt handlers: any handler that
 keeps interrupts off for more than a few microseconds when USB traffic
 arrives makes transactions fail. Handlers that run often should mask their
-own interrupt and re-enable interrupts (see the bridge in
-[digibridge](https://github.com/FILL-IN-GITHUB-USER/digibridge)).
+own interrupt and re-enable interrupts, as the USB-UART bridges built on this
+library do.
 
 ## Heavy two-way traffic
 
@@ -212,7 +223,8 @@ Reports, good or bad, are welcome.
 
 ## Installing
 
-Install the Digistump AVR core first (DigiCDCFast needs it). Then either
+Install the Digistump AVR core first (DigiCDCFast needs it; on the Digispark
+Pro, with the fix above). Then either
 install DigiCDCFast from the Arduino Library Manager, or download a release
 ZIP and use *Sketch > Include Library > Add .ZIP Library*, or clone this
 repository into your `Arduino/libraries` folder.
@@ -272,7 +284,8 @@ Things that behave differently:
 
 ```
 library.properties     Arduino library metadata
-src/                   DigiCDCFast.{h,cpp} and V-USB (with V-USB's Readme.txt and Changelog.txt)
+src/                   DigiCDCFast.{h,cpp}, DigiCDCMedium.h, DigiCDCDescriptor.h,
+                       and V-USB (with V-USB's Readme.txt and Changelog.txt)
 examples/              example sketches
 extras/throughput.py   host-side throughput meter
 extras/test/           hardware test: HostTest sketch and hosttest.py

@@ -8,6 +8,7 @@ and Digistump LLC (digistump.com)
 */
 
 #include "DigiCDCFast.h"
+#include "DigiCDCDescriptor.h"
 #include <stdint.h>
 #include <Arduino.h>
 #include <avr/pgmspace.h>
@@ -15,7 +16,8 @@ and Digistump LLC (digistump.com)
 #include <util/delay.h>
 
 /* library functions and variables start */
-static uint8_t tmp[HW_CDC_BULK_IN_SIZE];
+static uint8_t tmp[8];
+static uint8_t outPacketSize, inPacketSize;  /* from the descriptor, in usbBegin() */
 static uint8_t index = 0;
 
 static RingBuffer_t rxBuf;
@@ -197,6 +199,8 @@ void DigiCDCDevice::usbBegin()
     RingBuffer_InitBuffer(&txBuf,txBuf_Data,sizeof(txBuf_Data));
     RingBuffer_InitBuffer(&rxBuf,rxBuf_Data,sizeof(rxBuf_Data));
 
+    outPacketSize = pgm_read_byte(&digiCdcConfigDescriptor[DIGICDC_OUT_PACKET_SIZE_AT]);
+    inPacketSize = pgm_read_byte(&digiCdcConfigDescriptor[DIGICDC_IN_PACKET_SIZE_AT]);
     intr3Status = 0;
     sendEmptyFrame = 0;
     hostStalled = false;
@@ -211,9 +215,9 @@ void DigiCDCDevice::usbPollWrapper()
        V-USB allows this only while requests are disabled; enabling them
        unconditionally (as DigiCDC did on every packet sent) discards a
        received packet that is waiting to be processed. */
-    if(usbAllRequestsAreDisabled() && RingBuffer_GetFreeCount(&rxBuf) >= HW_CDC_BULK_OUT_SIZE)
+    if(usbAllRequestsAreDisabled() && RingBuffer_GetFreeCount(&rxBuf) >= outPacketSize)
         usbEnableAllRequests();
-    while((!(RingBuffer_IsEmpty(&txBuf)))&&(index<HW_CDC_BULK_IN_SIZE))
+    while((!(RingBuffer_IsEmpty(&txBuf)))&&(index<inPacketSize))
     {
         tmp[index++] = RingBuffer_Remove(&txBuf);
     }
@@ -224,7 +228,7 @@ void DigiCDCDevice::usbPollWrapper()
         {
             usbSetInterrupt(tmp,index);
             /* only a full packet leaves the host waiting for more */
-            sendEmptyFrame = (index == HW_CDC_BULK_IN_SIZE);
+            sendEmptyFrame = (index == inPacketSize);
             index = 0;
         }
         else if(sendEmptyFrame)
@@ -270,90 +274,10 @@ enum {
     SEND_BREAK
 };
 
-static const PROGMEM uchar configDescrCDC[] = {   /* USB configuration descriptor */
-    9,          /* sizeof(usbDescrConfig): length of descriptor in bytes */
-    USBDESCR_CONFIG,    /* descriptor type */
-    67,
-    0,          /* total length of data returned (including inlined descriptors) */
-    2,          /* number of interfaces in this configuration */
-    1,          /* index of this configuration */
-    0,          /* configuration name string index */
-#if USB_CFG_IS_SELF_POWERED
-    (1 << 7) | USBATTR_SELFPOWER,       /* attributes */
-#else
-    (1 << 7),                           /* attributes */
-#endif
-    USB_CFG_MAX_BUS_POWER/2,            /* max USB current in 2mA units */
-
-    /* interface descriptor follows inline: */
-    9,          /* sizeof(usbDescrInterface): length of descriptor in bytes */
-    USBDESCR_INTERFACE, /* descriptor type */
-    0,          /* index of this interface */
-    0,          /* alternate setting for this interface */
-    USB_CFG_HAVE_INTRIN_ENDPOINT,   /* endpoints excl 0: number of endpoint descriptors to follow */
-    USB_CFG_INTERFACE_CLASS,
-    USB_CFG_INTERFACE_SUBCLASS,
-    USB_CFG_INTERFACE_PROTOCOL,
-    0,          /* string index for interface */
-
-    /* CDC Class-Specific descriptor */
-    5,           /* sizeof(usbDescrCDC_HeaderFn): length of descriptor in bytes */
-    0x24,        /* descriptor type */
-    0,           /* header functional descriptor */
-    0x10, 0x01,
-
-    4,           /* sizeof(usbDescrCDC_AcmFn): length of descriptor in bytes    */
-    0x24,        /* descriptor type */
-    2,           /* abstract control management functional descriptor */
-    0x02,        /* SET_LINE_CODING, GET_LINE_CODING, SET_CONTROL_LINE_STATE    */
-
-    5,           /* sizeof(usbDescrCDC_UnionFn): length of descriptor in bytes  */
-    0x24,        /* descriptor type */
-    6,           /* union functional descriptor */
-    0,           /* CDC_COMM_INTF_ID */
-    1,           /* CDC_DATA_INTF_ID */
-
-    5,           /* sizeof(usbDescrCDC_CallMgtFn): length of descriptor in bytes */
-    0x24,        /* descriptor type */
-    1,           /* call management functional descriptor */
-    3,           /* allow management on data interface, handles call management by itself */
-    1,           /* CDC_DATA_INTF_ID */
-
-    /* Endpoint Descriptor */
-    7,           /* sizeof(usbDescrEndpoint) */
-    USBDESCR_ENDPOINT,  /* descriptor type = endpoint */
-    0x80|USB_CFG_EP3_NUMBER,        /* IN endpoint number 3 */
-    0x03,        /* attrib: Interrupt endpoint */
-    8, 0,        /* maximum packet size */
-    USB_CFG_INTR_POLL_INTERVAL,        /* in ms */
-
-    /* Interface Descriptor  */
-    9,           /* sizeof(usbDescrInterface): length of descriptor in bytes */
-    USBDESCR_INTERFACE,           /* descriptor type */
-    1,           /* index of this interface */
-    0,           /* alternate setting for this interface */
-    2,           /* endpoints excl 0: number of endpoint descriptors to follow */
-    0x0A,        /* Data Interface Class Codes */
-    0,
-    0,           /* Data Interface Class Protocol Codes */
-    0,           /* string index for interface */
-
-    /* Endpoint Descriptor */
-    7,           /* sizeof(usbDescrEndpoint) */
-    USBDESCR_ENDPOINT,  /* descriptor type = endpoint */
-    0x01,        /* OUT endpoint number 1 */
-    0x02,        /* attrib: Bulk endpoint */
-    HW_CDC_BULK_OUT_SIZE, 0,        /* maximum packet size */
-    0,           /* in ms */
-
-    /* Endpoint Descriptor */
-    7,           /* sizeof(usbDescrEndpoint) */
-    USBDESCR_ENDPOINT,  /* descriptor type = endpoint */
-    0x81,        /* IN endpoint number 1 */
-    0x02,        /* attrib: Bulk endpoint */
-    HW_CDC_BULK_IN_SIZE, 0,        /* maximum packet size */
-    0,           /* in ms */
-};
+/* 8-byte packets, unless the sketch defines the descriptor too (see
+   DigiCDCDescriptor.h and DigiCDCMedium.h) */
+extern const uchar digiCdcConfigDescriptor[DIGICDC_DESCRIPTOR_SIZE] PROGMEM __attribute__((weak)) =
+    DIGICDC_CONFIG_DESCRIPTOR(8, 8);
 
 uchar usbFunctionDescriptor(usbRequest_t *rq)
 {
@@ -361,8 +285,8 @@ uchar usbFunctionDescriptor(usbRequest_t *rq)
         usbMsgPtr = (uchar *)usbDescriptorDevice;
         return usbDescriptorDevice[0];
     }else{  /* must be config descriptor */
-        usbMsgPtr = (uchar *)configDescrCDC;
-        return sizeof(configDescrCDC);
+        usbMsgPtr = (uchar *)digiCdcConfigDescriptor;
+        return DIGICDC_DESCRIPTOR_SIZE;
     }
 }
 
@@ -436,7 +360,7 @@ void usbFunctionWriteOut( uchar *data, uchar len )
 
     /* postpone receiving next data */
     /* pause input (the host gets NAKs) until another full packet fits */
-    if(RingBuffer_GetFreeCount(&rxBuf) < HW_CDC_BULK_OUT_SIZE)
+    if(RingBuffer_GetFreeCount(&rxBuf) < outPacketSize)
     {
         usbDisableAllRequests();
     }

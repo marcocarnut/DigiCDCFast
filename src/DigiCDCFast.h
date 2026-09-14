@@ -45,17 +45,6 @@ Same API otherwise; include DigiCDCFast.h instead of DigiCDC.h.
 
 #define HW_CDC_TX_BUF_SIZE     64
 #define HW_CDC_RX_BUF_SIZE     32
-/* USB packet sizes, 1 to 8 bytes. Smaller packets shorten each USB
-   transaction, and so the time V-USB keeps interrupts off (8 bytes: ~110 us,
-   2 bytes: ~73 us), at the cost of throughput (1000 packets per second each
-   way). Set them for the whole build, e.g. with arduino-cli:
-   --build-property "build.extra_flags=-DHW_CDC_BULK_OUT_SIZE=2 -DHW_CDC_BULK_IN_SIZE=2" */
-#ifndef HW_CDC_BULK_OUT_SIZE
-#define HW_CDC_BULK_OUT_SIZE     8
-#endif
-#ifndef HW_CDC_BULK_IN_SIZE
-#define HW_CDC_BULK_IN_SIZE      8
-#endif
 
 
 
