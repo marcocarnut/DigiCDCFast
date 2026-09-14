@@ -25,6 +25,9 @@ static RingBuffer_t txBuf;
 static uint8_t      txBuf_Data[HW_CDC_TX_BUF_SIZE];
 
 static bool         hostStalled;    /* host stopped reading: don't wait for room */
+/* CDC line coding set by the host: bit rate (little endian), stop bits,
+   parity, data bits. Starts as 9600 8N1. */
+static uchar        lineCoding[7] = {0x80, 0x25, 0, 0, 0, 0, 8};
 static unsigned long lastInMs;      /* when the last data packet was queued for the host */
 static bool         resyncSent;     /* empty packet already queued ahead of the next data */
 
@@ -114,6 +117,21 @@ size_t DigiCDCDevice::write(uint8_t c)
     RingBuffer_Insert(&txBuf,c);
     usbPollWrapper();
     return 1;
+}
+
+int DigiCDCDevice::availableForWrite()
+{
+    return RingBuffer_GetFreeCount(&txBuf);
+}
+
+/* The bit rate the host last set for the port (for bridges; DigiCDC itself
+   ignores it). Changed from usbPoll(), so no interrupt can interfere. */
+unsigned long DigiCDCDevice::baud()
+{
+    /* widen before shifting: (lineCoding[1] << 8) would be a negative int
+       for rates like 57600 (0xE100) and sign-extend */
+    return (unsigned long)lineCoding[0] | ((unsigned long)lineCoding[1] << 8)
+        | ((unsigned long)lineCoding[2] << 16) | ((unsigned long)lineCoding[3] << 24);
 }
 
 int DigiCDCDevice::available()
@@ -406,25 +424,22 @@ usbRequest_t    *rq = (usbRequest_t*)((void *)data);
 /*---------------------------------------------------------------------------*/
 uchar usbFunctionRead( uchar *data, uchar len )
 {
-    // data[0] = 0;
-    // data[1] = 0;
-    // data[2] = 0;
-    // data[3] = 0;
-    // data[4] = 0;
-    // data[5] = 0;
-    // data[6] = 8;
-
-    return 7;
+    /* GET_LINE_CODING (DigiCDC returned 7 bytes it never filled in) */
+    if(len > sizeof(lineCoding))
+        len = sizeof(lineCoding);
+    memcpy(data, lineCoding, len);
+    return len;
 }
 
 /*---------------------------------------------------------------------------*/
 /* usbFunctionWrite                                                          */
 /*---------------------------------------------------------------------------*/
 uchar usbFunctionWrite( uchar *data, uchar len )
-{    
-    // baud.bytes[0] = data[0];
-    // baud.bytes[1] = data[1];
-
+{
+    /* SET_LINE_CODING: 7 bytes, which fit in one 8-byte packet */
+    if(len > sizeof(lineCoding))
+        len = sizeof(lineCoding);
+    memcpy(lineCoding, data, len);
     return 1;
 }
 

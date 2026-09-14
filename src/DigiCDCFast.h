@@ -23,6 +23,9 @@ its throughput limits (~200 bytes/s at best) and with its bugs fixed:
   until available() returns 0.
 - read() and peek() return -1 when no data is available (they returned 0).
 - begin(unsigned long) is implemented (the baud rate is ignored).
+- baud() returns the bit rate the host set for the port (DigiCDC ignored it
+  and answered GET_LINE_CODING with uninitialized bytes), and
+  availableForWrite() the free space in the transmit buffer.
 - The transmit buffer is 64 bytes (32 in the 1.7.5 core).
 - The buffers are defined in DigiCDCFast.cpp instead of as static variables
   in this header, so other files that include it no longer get unused copies.
@@ -58,6 +61,8 @@ class DigiCDCDevice  : public Stream {
         void delay(long milli);
         void setDtrPin(uint8_t dtrPin);
         virtual int available(void);
+        int availableForWrite(void);
+        unsigned long baud(void);
         virtual int peek(void);
         virtual int read(void);
         virtual void flush(void);

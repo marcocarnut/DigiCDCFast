@@ -53,13 +53,19 @@ The bugs:
 8. **`begin(unsigned long)` was declared but not implemented**, so calling
    `SerialUSB.begin(9600)` failed to link. It now works; the baud rate is
    ignored, as it means nothing over USB.
+9. **The host's line settings were thrown away**, and `GET_LINE_CODING`
+   was answered with 7 bytes that were never filled in. They are now kept
+   and reported back, and `SerialUSB.baud()` returns the bit rate the host
+   set (for example with `stty`), which a USB-serial bridge needs.
 
 Also:
 
-9. The ring buffers used to be `static` variables defined in the header, so
+10. `availableForWrite()` returns the free space in the transmit buffer, so a
+    sketch can avoid blocking in `write()`.
+11. The ring buffers used to be `static` variables defined in the header, so
    every file that included it got its own unused copy. They are now defined
    in the `.cpp`.
-10. The transmit buffer is 64 bytes instead of 32.
+12. The transmit buffer is 64 bytes instead of 32.
 
 The header and source were renamed `DigiCDCFast.h` / `DigiCDCFast.cpp` so the
 library can be installed next to the core's DigisparkCDC. The class is still
