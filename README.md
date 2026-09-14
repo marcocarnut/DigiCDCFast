@@ -311,6 +311,16 @@ Things that behave differently:
   check for lost bytes. The script uses only the Python standard library and
   runs on Linux (and probably macOS), not Windows.
 
+## Projects using DigiCDCFast
+
+- [DigisparkProBridge](https://github.com/marcocarnut/DigisparkProBridge):
+  a USB-to-UART bridge for the Digispark Pro, using its hardware UART.
+  Lossless up to 38400 bps in both directions at once.
+- [DigisparkBridge](https://github.com/marcocarnut/DigisparkBridge): an
+  experimental USB-to-UART bridge for the original Digispark, which has no
+  UART: hardware oversampling with USI to receive, timer-driven bit edges to
+  transmit, and `DigiCDCMedium.h`. Up to 9600 bps.
+
 ## Repository layout
 
 ```
