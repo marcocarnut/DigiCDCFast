@@ -172,13 +172,11 @@ own interrupt and re-enable interrupts (see the bridge in
 ## Heavy two-way traffic
 
 The `flood` tests in `extras/test/hosttest.py` send data to the host while
-the host floods the sketch. Before the core fix above, on the Digispark Pro,
-the first packet sent after heavy receiving was lost in 8 to 40 of 40 rounds,
-and about 1 round in 20 lost a packet while both directions were saturated.
-With the core fix, 40 of 40 rounds of each lost nothing, with or without the
-empty packet DigiCDCFast sends ahead of data after 10 ms idle (a workaround
-added before the cause was found; it is kept until the flood tests have run
-on an ATtiny85 Digispark as well).
+the host floods the sketch. On the Digispark Pro with the original core, the
+first packet sent after heavy receiving was lost in 8 to 40 of 40 rounds, and
+about 1 round in 20 lost a packet while both directions were saturated. With
+the core fix above, both variants lost nothing in 40 of 40 rounds, as on an
+ATtiny85 Digispark.
 
 V-USB still marks a packet as delivered as soon as it sends it, without
 waiting for the host's acknowledgement ("the rest of the driver assumes
