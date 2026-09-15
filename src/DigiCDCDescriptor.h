@@ -4,7 +4,8 @@
 
   DigiCDCFast.cpp defines it weakly with 8-byte packets. A sketch that includes
   DigiCDCMedium.h defines it with 2-byte packets instead, and the linker takes
-  that one. The library reads the packet sizes back from the descriptor.
+  that one. The library reads the packet sizes back from the descriptor. The
+  buffers are chosen the same way.
 */
 #ifndef __DigiCDCDescriptor_h__
 #define __DigiCDCDescriptor_h__
@@ -19,9 +20,20 @@
 extern "C" {
 #endif
 extern const uchar digiCdcConfigDescriptor[DIGICDC_DESCRIPTOR_SIZE];
+/* The transmit and receive buffers, and their sizes (in flash): 64 and 32
+   bytes in DigiCDCFast.cpp, unless the sketch defines them too (DIGICDC_BUFFERS) */
+extern uint8_t digiCdcTxBuffer[], digiCdcRxBuffer[];
+extern const uint8_t digiCdcBufferSizes[2];
 #ifdef __cplusplus
 }
 #endif
+
+/* Define the buffers with other sizes (1 to 255 bytes; the receive buffer must
+   hold a whole packet), in one file of the sketch */
+#define DIGICDC_BUFFERS(txSize, rxSize)                                     \
+    uint8_t digiCdcTxBuffer[txSize];                                        \
+    uint8_t digiCdcRxBuffer[rxSize];                                        \
+    const uint8_t digiCdcBufferSizes[2] PROGMEM = {(txSize), (rxSize)}
 
 #define DIGICDC_CONFIG_DESCRIPTOR(outSize, inSize) {                        \
    /* USB configuration descriptor */                                                                 \

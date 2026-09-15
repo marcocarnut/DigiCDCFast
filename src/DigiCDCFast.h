@@ -43,8 +43,7 @@ Same API otherwise; include DigiCDCFast.h instead of DigiCDC.h.
 #include "ringBuffer.h"
 
 
-#define HW_CDC_TX_BUF_SIZE     64
-#define HW_CDC_RX_BUF_SIZE     32
+#include "DigiCDCBufferSizes.h"
 
 
 
@@ -65,6 +64,7 @@ class DigiCDCDevice  : public Stream {
         virtual int read(void);
         virtual void flush(void);
         virtual size_t write(uint8_t);
+        virtual size_t write(const uint8_t *buffer, size_t size);
         using Print::write;
         operator bool();
     private:

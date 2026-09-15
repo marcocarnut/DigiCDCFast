@@ -21,10 +21,10 @@ static uint8_t outPacketSize, inPacketSize;  /* from the descriptor, in usbBegin
 static uint8_t index = 0;
 
 static RingBuffer_t rxBuf;
-static uint8_t      rxBuf_Data[HW_CDC_RX_BUF_SIZE];
-
 static RingBuffer_t txBuf;
-static uint8_t      txBuf_Data[HW_CDC_TX_BUF_SIZE];
+
+/* The buffers: 64 and 32 bytes (DigiCDCBuffers.S), unless the sketch defines
+   them too (see DigiCDCDescriptor.h) */
 
 static bool         hostStalled;    /* host stopped reading: don't wait for room */
 /* CDC line coding set by the host: bit rate (little endian), stop bits,
@@ -39,13 +39,9 @@ DigiCDCDevice::DigiCDCDevice(void){}
 
 
 void DigiCDCDevice::delay(long milli) {
-  unsigned long last = millis();
-  while (milli > 0) {
-    unsigned long now = millis();
-    milli -= now - last;
-    last = now;
+  unsigned long start = millis();
+  while ((long)(millis() - start) < milli)
     refresh();
-  }
 }
 
 /* How long write() and flush() wait for the host to take data before
@@ -115,6 +111,15 @@ size_t DigiCDCDevice::write(uint8_t c)
     return 1;
 }
 
+/* Print's version calls write(uint8_t) through the virtual table for each byte */
+size_t DigiCDCDevice::write(const uint8_t *buffer, size_t size)
+{
+    size_t n = 0;
+    while(n < size && DigiCDCDevice::write(buffer[n]))
+        n++;
+    return n;
+}
+
 int DigiCDCDevice::availableForWrite()
 {
     return RingBuffer_GetFreeCount(&txBuf);
@@ -171,7 +176,7 @@ void DigiCDCDevice::end(void)
     // drive both USB pins low to disconnect
     usbDeviceDisconnect();
     cli();
-    RingBuffer_InitBuffer(&rxBuf,rxBuf_Data,sizeof(rxBuf_Data));
+    RingBuffer_InitBuffer(&rxBuf,digiCdcRxBuffer,pgm_read_byte(&digiCdcBufferSizes[1]));
     sei(); 
     
 }
@@ -196,8 +201,8 @@ void DigiCDCDevice::usbBegin()
     usbDeviceConnect();
     usbInit();
 
-    RingBuffer_InitBuffer(&txBuf,txBuf_Data,sizeof(txBuf_Data));
-    RingBuffer_InitBuffer(&rxBuf,rxBuf_Data,sizeof(rxBuf_Data));
+    RingBuffer_InitBuffer(&txBuf,digiCdcTxBuffer,pgm_read_byte(&digiCdcBufferSizes[0]));
+    RingBuffer_InitBuffer(&rxBuf,digiCdcRxBuffer,pgm_read_byte(&digiCdcBufferSizes[1]));
 
     outPacketSize = pgm_read_byte(&digiCdcConfigDescriptor[DIGICDC_OUT_PACKET_SIZE_AT]);
     inPacketSize = pgm_read_byte(&digiCdcConfigDescriptor[DIGICDC_IN_PACKET_SIZE_AT]);
