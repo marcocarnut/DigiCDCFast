@@ -26,9 +26,11 @@ its throughput limits (~200 bytes/s at best) and with its bugs fixed:
 - baud() returns the bit rate the host set for the port (DigiCDC ignored it
   and answered GET_LINE_CODING with uninitialized bytes), and
   availableForWrite() the free space in the transmit buffer.
-- The transmit buffer is 64 bytes (32 in the 1.7.5 core).
-- The buffers are defined in DigiCDCFast.cpp instead of as static variables
-  in this header, so other files that include it no longer get unused copies.
+- The transmit buffer is 64 bytes (32 in the 1.7.5 core). The buffers are
+  defined once in the library (DigiCDCBuffers.S) instead of as static
+  variables in this header, so other files that include it no longer get
+  unused copies, and a sketch can choose their sizes: DIGICDC_BUFFERS(tx, rx)
+  in one of its files (see DigiCDCDescriptor.h).
 Same API otherwise; include DigiCDCFast.h instead of DigiCDC.h.
 
 
@@ -44,6 +46,7 @@ Same API otherwise; include DigiCDCFast.h instead of DigiCDC.h.
 
 
 #include "DigiCDCBufferSizes.h"
+#include "DigiCDCDescriptor.h"  /* DIGICDC_BUFFERS() for sketches */
 
 
 

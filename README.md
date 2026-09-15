@@ -74,13 +74,47 @@ Also:
 11. `availableForWrite()` returns the free space in the transmit buffer, so a
     sketch can avoid blocking in `write()`.
 12. The ring buffers used to be `static` variables defined in the header, so
-   every file that included it got its own unused copy. They are now defined
-   in the `.cpp`.
-13. The transmit buffer is 64 bytes instead of 32.
+    every file that included it got its own unused copy. They are now
+    defined once in the library, and a sketch can choose their sizes (see
+    [Size](#size)).
+13. The transmit buffer is 64 bytes by default instead of 32.
 
 14. `DigiCDCMedium.h` offers the same library with 2-byte USB packets, for
     sketches with tight timing of their own (see
     [Shorter USB packets](#shorter-usb-packets-digicdcmediumh)).
+
+## Size
+
+Version 1.1.0 is about 450 bytes of flash and 14 bytes of RAM smaller than
+1.0.0, with the same behaviour and test results. Compiled examples, same core:
+
+| Sketch | Board | 1.0.0 | 1.1.0 |
+|--------|-------|-------|-------|
+| `Echo` | Digispark | 3656 bytes flash, 252 RAM | 3210 bytes flash, 238 RAM |
+| `Print` | Digispark Pro | 4776 bytes flash, 270 RAM | 4326 bytes flash, 256 RAM |
+
+What changed: the ring buffers use 8-bit indices and no longer block
+interrupts (only `usbPoll()` and the sketch touch them, never an interrupt);
+`write()` and `flush()` share one wait loop; `read()` is built on `peek()`;
+`write(buffer, size)` writes directly instead of through `Print`; and
+`GET_LINE_CODING` is answered straight from `usbFunctionSetup()`, so V-USB's
+`usbFunctionRead()` support is compiled out.
+
+The transmit and receive buffers are 64 and 32 bytes by default. A sketch can
+choose other sizes, 1 to 255 bytes (the receive buffer must hold at least one
+USB packet), by writing this in one of its files, after including the
+library:
+
+```cpp
+DIGICDC_BUFFERS(16, 8);  // transmit, receive
+```
+
+The library's own buffers are weak symbols, so the linker takes the sketch's
+instead. `DigiCDCMedium.h` uses 8 and 8, which is plenty for 2-byte packets
+and leaves RAM to the sketch. Smaller buffers don't lose data (the host is
+paused when the receive buffer is full, and `write()` waits for room), but
+a sketch that prints a lot in one go then spends more of that time waiting
+in `write()`.
 
 The header and source were renamed `DigiCDCFast.h` / `DigiCDCFast.cpp` so the
 library can be installed next to the core's DigisparkCDC. The class is still
@@ -129,6 +163,12 @@ Test conditions:
   USB 2 port and both USB 3 ports, and with `DigiCDCMedium.h` (2000 bytes/s). Once a USB 3 port couldn't enumerate the
   board at all, the bootloader included (error -71); plugged in again, it
   worked. The Digispark's bare PCB plug doesn't always make good contact.
+- Version 1.1.0 was retested on a Digispark and a Digispark Pro, with 8-byte
+  and 2-byte packets: `HostTest` passes all 7 tests and 20 rounds of each
+  `flood` test on both boards, the `Echo` example returns 20000 bytes intact
+  at 7989 bytes/s, and `GET_LINE_CODING` was checked by sending control
+  requests directly (with the kernel driver detached), including a request
+  for fewer bytes than the reply.
 - And on a Raspberry Pi 3 Model B (Raspbian 10, Linux 4.19), where the board
   sits behind the Pi's built-in USB 2 hub on the older `dwc_otg` controller:
   both variants, 8000 and 2000 bytes/s, no USB errors.
@@ -196,9 +236,16 @@ the original core, none of either with the change.
 
 The same applies to a sketch's own interrupt handlers: any handler that
 keeps interrupts off for more than a few microseconds when USB traffic
-arrives makes transactions fail. Handlers that run often should mask their
-own interrupt and re-enable interrupts, as the USB-UART bridges built on this
-library do.
+arrives makes transactions fail. V-USB has to start within about 40 CPU
+cycles (2.5 us) of a packet's first bits, and at 16 and 16.5 MHz it can't
+check CRCs (only its 18 MHz code has room for that), so starting too late can
+also let a packet through corrupted, accepted as valid. That includes a
+handler's exit: restoring registers takes 2 cycles each. Handlers that run
+often should mask their own interrupt and re-enable interrupts, and do the
+same before restoring their registers, as the USB-UART bridges built on this
+library do. In DigisparkBridge, a handler that restored its registers with
+interrupts off (over 100 cycles) let corrupted packets from the host through
+in some sessions and lost the host's line-setting requests.
 
 ## Heavy two-way traffic
 
@@ -325,6 +372,7 @@ Things that behave differently:
 ```
 library.properties     Arduino library metadata
 src/                   DigiCDCFast.{h,cpp}, DigiCDCMedium.h, DigiCDCDescriptor.h,
+                       DigiCDCBuffers.S and DigiCDCBufferSizes.h (default buffers),
                        and V-USB (with V-USB's Readme.txt and Changelog.txt)
 examples/              example sketches
 extras/throughput.py   host-side throughput meter

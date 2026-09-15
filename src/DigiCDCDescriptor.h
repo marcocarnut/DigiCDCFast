@@ -21,7 +21,7 @@ extern "C" {
 #endif
 extern const uchar digiCdcConfigDescriptor[DIGICDC_DESCRIPTOR_SIZE];
 /* The transmit and receive buffers, and their sizes (in flash): 64 and 32
-   bytes in DigiCDCFast.cpp, unless the sketch defines them too (DIGICDC_BUFFERS) */
+   bytes in DigiCDCBuffers.S, unless the sketch defines them too (DIGICDC_BUFFERS) */
 extern uint8_t digiCdcTxBuffer[], digiCdcRxBuffer[];
 extern const uint8_t digiCdcBufferSizes[2];
 #ifdef __cplusplus
