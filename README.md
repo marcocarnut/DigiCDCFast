@@ -3,14 +3,13 @@
 A USB CDC serial port (`SerialUSB`) for the [Digispark](http://digistump.com/)
 (ATtiny85) and Digispark Pro (ATtiny167), built on
 [V-USB](https://www.obdev.at/vusb/). It is a fork of the
-DigisparkCDC library (`DigiCDC.h`) that ships with the Digistump AVR core
-1.7.5, with the limits that held it to about 160 bytes/s removed and its bugs
-fixed. The API is the same, apart from the fixes listed under
-[Migrating from DigiCDC](#migrating-from-digicdc).
+DigisparkCDC library (`DigiCDC.h`) that ships with the Digistump AVR core 1.7.5
+but >40x faster: its bugs corrected and limits removed so it reaches 8,000 bytes
+per second (the most a low-speed USB interrupt endpoint polled each millisecond
+can carry with 8-byte packets), as opposed to the original 161 bytes/s.
 
-On Linux, sending 20000 bytes went from **161 bytes/s** with DigisparkCDC to
-**8000 bytes/s** with DigiCDCFast, the most a low-speed USB interrupt endpoint
-can carry (8 bytes every millisecond).
+The API is the same, apart from the fixes listed under
+[Migrating from DigiCDC](#migrating-from-digicdc).
 
 ## What was slow, and what changed
 
