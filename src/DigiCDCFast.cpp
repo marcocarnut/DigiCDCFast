@@ -57,9 +57,18 @@ static uint8_t txPending()
    later (DigiCDC's flush() discarded received data instead). Gives up after
    HOST_TIMEOUT_MS without progress. */
 void DigiCDCDevice::flush(){
-    unsigned long start = millis();
+    waitForHost(true);
+}
+
+/* Polls until the host has taken everything (all) or there is room for a
+   byte. False when the host takes nothing for HOST_TIMEOUT_MS, or has
+   already been found stalled. */
+bool DigiCDCDevice::waitForHost(bool all)
+{
+    uint16_t start = millis();
     uint8_t pending = txPending();
-    while(pending > 0 || sendEmptyFrame || !usbInterruptIsReady())
+    while(all ? pending > 0 || sendEmptyFrame || !usbInterruptIsReady()
+              : RingBuffer_IsFull(&txBuf))
     {
         refresh();
         if(txPending() < pending)
@@ -68,12 +77,13 @@ void DigiCDCDevice::flush(){
             start = millis();
             hostStalled = false;
         }
-        else if(hostStalled || millis() - start > HOST_TIMEOUT_MS)
+        else if(hostStalled || (uint16_t)millis() - start > HOST_TIMEOUT_MS)
         {
             hostStalled = true;
-            return;
+            return false;
         }
     }
+    return true;
 }
 
 void DigiCDCDevice::begin(){
@@ -93,18 +103,8 @@ void DigiCDCDevice::begin(unsigned long){  /* baud rate is meaningless over USB 
    so a sketch printing with no program reading doesn't slow to a crawl. */
 size_t DigiCDCDevice::write(uint8_t c)
 {
-    unsigned long start = millis();
-    while(RingBuffer_IsFull(&txBuf))
-    {
-        refresh();
-        if(!RingBuffer_IsFull(&txBuf))
-            break;
-        if(hostStalled || millis() - start > HOST_TIMEOUT_MS)
-        {
-            hostStalled = true;
-            return 0;
-        }
-    }
+    if(!waitForHost(false))
+        return 0;
     hostStalled = false;
     RingBuffer_Insert(&txBuf,c);
     usbPollWrapper();
@@ -143,10 +143,10 @@ int DigiCDCDevice::available()
 
 int DigiCDCDevice::read()
 {
-    refresh();
-    if(RingBuffer_IsEmpty(&rxBuf))
-        return -1;
-    return RingBuffer_Remove(&rxBuf);
+    int c = peek();
+    if(c >= 0)
+        RingBuffer_Remove(&rxBuf);
+    return c;
 }
 
 int DigiCDCDevice::peek()
@@ -305,10 +305,12 @@ usbRequest_t    *rq = (usbRequest_t*)((void *)data);
 
     if((rq->bmRequestType & USBRQ_TYPE_MASK) == USBRQ_TYPE_CLASS){    /* class request type */
 
-        if( rq->bRequest==GET_LINE_CODING || rq->bRequest==SET_LINE_CODING ){
-            return 0xff;
-        /*    GET_LINE_CODING -> usbFunctionRead()    */
-        /*    SET_LINE_CODING -> usbFunctionWrite()    */
+        if( rq->bRequest==GET_LINE_CODING ){
+            usbMsgPtr = lineCoding;
+            return sizeof(lineCoding);
+        }
+        if( rq->bRequest==SET_LINE_CODING ){
+            return 0xff;    /* -> usbFunctionWrite() */
         }
         if(rq->bRequest == SET_CONTROL_LINE_STATE){
             if(portB_dtr_bit != 0xFF)
@@ -326,18 +328,6 @@ usbRequest_t    *rq = (usbRequest_t*)((void *)data);
     }
 
     return 0;
-}
-
-/*---------------------------------------------------------------------------*/
-/* usbFunctionRead                                                          */
-/*---------------------------------------------------------------------------*/
-uchar usbFunctionRead( uchar *data, uchar len )
-{
-    /* GET_LINE_CODING (DigiCDC returned 7 bytes it never filled in) */
-    if(len > sizeof(lineCoding))
-        len = sizeof(lineCoding);
-    memcpy(data, lineCoding, len);
-    return len;
 }
 
 /*---------------------------------------------------------------------------*/

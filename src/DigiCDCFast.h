@@ -70,6 +70,7 @@ class DigiCDCDevice  : public Stream {
     private:
         void usbBegin();
         void usbPollWrapper();
+        bool waitForHost(bool all);
  };
 
 
