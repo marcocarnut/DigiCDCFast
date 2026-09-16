@@ -82,6 +82,8 @@ Also:
 14. `DigiCDCMedium.h` offers the same library with 2-byte USB packets, for
     sketches with tight timing of their own (see
     [Shorter USB packets](#shorter-usb-packets-digicdcmediumh)).
+15. A sketch can refuse line settings it can't provide (see
+    [Refusing line settings](#refusing-line-settings)).
 
 ## Size
 
@@ -213,6 +215,32 @@ the library's 8-byte one). For other packet sizes, 1 to 8 bytes, copy
 want `DigiCDCFast.h`; this is for cases like a software UART sharing the CPU
 with V-USB. `HostTest` passes all its tests either way (2000 bytes/s with
 2-byte packets).
+
+## Refusing line settings
+
+A sketch that can only provide some bit rates, such as a USB-UART bridge,
+can define this function (with C linkage, in one of its files):
+
+```cpp
+extern "C" uint8_t digiCdcAcceptLineCoding(const uint8_t *coding)
+{
+    /* coding: bit rate (4 bytes, little endian), stop bits, parity, data bits */
+    uint32_t baud = (uint32_t)coding[0] | (uint32_t)coding[1] << 8
+                  | (uint32_t)coding[2] << 16 | (uint32_t)coding[3] << 24;
+    return baud == 9600 || baud == 4800;
+}
+```
+
+Returning 0 makes the library answer `SET_LINE_CODING` with a STALL, as the
+CDC specification asks for settings a device can't provide, and keep
+reporting the settings in use to `GET_LINE_CODING` and `baud()`.
+
+Linux does not pass the refusal on: `tcsetattr()` (and `stty`) still
+succeed, and the host then believes a rate the device isn't using. A
+program can notice by reading the settings back from the device (a
+`GET_LINE_CODING` control request), and the STALL is visible in usbmon
+traces. Windows and macOS were not tested. Without this function, every
+setting is accepted, as before.
 
 ## Digispark Pro: the core's millis interrupt must not block
 

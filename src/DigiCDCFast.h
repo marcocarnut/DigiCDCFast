@@ -25,7 +25,8 @@ its throughput limits (~200 bytes/s at best) and with its bugs fixed:
 - begin(unsigned long) is implemented (the baud rate is ignored).
 - baud() returns the bit rate the host set for the port (DigiCDC ignored it
   and answered GET_LINE_CODING with uninitialized bytes), and
-  availableForWrite() the free space in the transmit buffer.
+  availableForWrite() the free space in the transmit buffer. A sketch can
+  refuse settings by defining digiCdcAcceptLineCoding() (see DigiCDCFast.cpp).
 - The transmit buffer is 64 bytes (32 in the 1.7.5 core). The buffers are
   defined once in the library (DigiCDCBuffers.S) instead of as static
   variables in this header, so other files that include it no longer get

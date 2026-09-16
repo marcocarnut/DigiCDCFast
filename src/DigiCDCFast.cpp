@@ -333,11 +333,24 @@ usbRequest_t    *rq = (usbRequest_t*)((void *)data);
 /*---------------------------------------------------------------------------*/
 /* usbFunctionWrite                                                          */
 /*---------------------------------------------------------------------------*/
+/* A sketch may define this to refuse line settings it can't provide (a
+   USB-UART bridge with a few bit rates, say): the request is then answered
+   with a STALL, as the CDC specification asks, and GET_LINE_CODING keeps
+   reporting the settings in use. Note that Linux does not pass the refusal
+   on to the program that called tcsetattr(). */
+uchar digiCdcAcceptLineCoding(const uchar *coding) __attribute__((weak));
+uchar digiCdcAcceptLineCoding(const uchar *)
+{
+    return 1;
+}
+
 uchar usbFunctionWrite( uchar *data, uchar len )
 {
     /* SET_LINE_CODING: 7 bytes, which fit in one 8-byte packet */
     if(len > sizeof(lineCoding))
         len = sizeof(lineCoding);
+    if(len == sizeof(lineCoding) && !digiCdcAcceptLineCoding(data))
+        return 0xff;    /* STALL: these settings are refused */
     memcpy(lineCoding, data, len);
     return 1;
 }
