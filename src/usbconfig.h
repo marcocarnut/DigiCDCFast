@@ -45,6 +45,21 @@ section at the end of this file).
  * USB_CFG_CLOCK_KHZ = 18000 if you enable this option.
  */
 
+#ifndef USB_CFG_TRANSACTION_END_HOOK
+#define USB_CFG_TRANSACTION_END_HOOK    1
+#endif
+/* DigiCDCFast addition. Whether the driver calls usbTransactionEnd() at the
+ * end of every transaction, so that a sketch can do something the interrupt
+ * would otherwise keep it from doing for up to 200 us (see the README). A
+ * sketch that defines no hook of its own still pays for the call: four bytes
+ * of flash and seven cycles per transaction, which delay the driver's return
+ * by 0.42 us at 16.5 MHz. That is nothing to most sketches, and measurably
+ * nothing to the two bridges written against this library, but a sketch whose
+ * own timing is built around when the driver lets go may prefer to set this
+ * to 0 here. It cannot be set from the sketch: the Arduino IDE compiles a
+ * library once, without the sketch's definitions.
+ */
+
 /* --------------------------- Functional Range ---------------------------- */
 
 #define USB_CFG_HAVE_INTRIN_ENDPOINT    1

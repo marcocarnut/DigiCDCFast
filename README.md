@@ -261,6 +261,21 @@ The rules are strict, because it runs inside the USB interrupt:
   pending through the run of transactions and runs the moment the driver
   returns, which is exactly when the next packet arrives.
 
+A sketch that defines no hook still pays for the call: four bytes of flash,
+and seven cycles per transaction that delay the driver's return by 0.42 µs at
+16.5 MHz. That is measurably nothing to both bridges written against this
+library, so it is on by default, but a sketch whose own timing is built
+around the moment the driver lets go can set `USB_CFG_TRANSACTION_END_HOOK`
+to 0 in `src/usbconfig.h`. It has to be set there, in the library: the
+Arduino IDE compiles a library once, without the sketch's definitions. A
+sketch that needs the hook can say so with
+
+```cpp
+#if !USB_CFG_TRANSACTION_END_HOOK
+#error "this sketch needs USB_CFG_TRANSACTION_END_HOOK in DigiCDCFast's usbconfig.h"
+#endif
+```
+
 [DigisparkProBridge](https://github.com/marcocarnut/DigisparkProBridge) uses
 it to collect the byte its UART is holding, and to hand the transmitter its
 next one, which is what let it run 76800 bps in both directions at once

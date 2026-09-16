@@ -127,7 +127,9 @@ sofError:
 ;is exactly when the packet after them arrives, and an ordinary handler's
 ;prologue is long enough to make the driver miss it.
 doReturnAfterSend:
+#if USB_CFG_TRANSACTION_END_HOOK
     rcall   usbTransactionEnd
+#endif
     rjmp    doReturn
 
 handleData:
