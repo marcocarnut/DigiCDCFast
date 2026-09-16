@@ -102,6 +102,34 @@ sofError:
     POP_RETI                    ;macro call
     reti
 
+;DigiCDCFast: the exit taken once a transaction is over, i.e. after sending a
+;handshake or a data packet. If the host has already begun the next one the
+;driver handles that too without leaving the interrupt, and so on for as long
+;as transactions follow each other: about 200 us with 8-byte packets, during
+;which nothing else in the sketch runs. (Returning between transactions
+;instead was tried and changes nothing: the USB interrupt is pending by then,
+;and the processor serves it before any interrupt with a higher vector
+;number.) So this is where a sketch gets its turn, through usbTransactionEnd,
+;a weak do-nothing function it may replace -- to collect a UART byte that
+;would otherwise be overwritten, say. It runs with the driver's registers
+;already saved, so it may clobber r0, r16-r22, Y and the flags, and nothing
+;else, which is why it has to be written in assembler, naked: the compiler
+;saves nothing for a naked function and would use registers the driver kept.
+;It must be short: if the host has already begun the next transaction, that
+;packet is sending its sync pattern meanwhile and the driver has to be back in
+;time to catch it. Hooks of 25 and of 33 cycles both measured clean at 16 MHz,
+;so there is room, but a late packet is received corrupted rather than missed,
+;and silently, since there is no time to check its CRC either.
+;It is called on every transaction, deliberately, and not only when the next
+;one is already arriving. Calling it just in that case was tried and was far
+;worse than no hook at all: the sketch's own handler then stays pending
+;through the run of transactions and runs the moment the driver returns, which
+;is exactly when the packet after them arrives, and an ordinary handler's
+;prologue is long enough to make the driver miss it.
+doReturnAfterSend:
+    rcall   usbTransactionEnd
+    rjmp    doReturn
+
 handleData:
 #if USB_CFG_CHECK_CRC
     CRC_CLEANUP_AND_CHECK       ; jumps to ignorePacket if CRC error
