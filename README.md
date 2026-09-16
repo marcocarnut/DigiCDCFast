@@ -262,8 +262,10 @@ The rules are strict, because it runs inside the USB interrupt:
   returns, which is exactly when the next packet arrives.
 
 [DigisparkProBridge](https://github.com/marcocarnut/DigisparkProBridge) uses
-it to collect the byte its UART is holding, which is what let it run
-57600 bps in both directions without losing any.
+it to collect the byte its UART is holding, and to hand the transmitter its
+next one, which is what let it run 76800 bps in both directions at once
+without losing any -- the last rate low-speed USB can carry, 7680 of the
+8000 bytes/s. It managed 38400 bps before.
 
 ## Refusing line settings
 
