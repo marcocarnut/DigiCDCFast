@@ -216,6 +216,55 @@ want `DigiCDCFast.h`; this is for cases like a software UART sharing the CPU
 with V-USB. `HostTest` passes all its tests either way (2000 bytes/s with
 2-byte packets).
 
+### Borrowing the interrupt: usbTransactionEnd()
+
+The 198 µs in the table is not one transaction but two. When the host runs
+transactions back to back -- which is what heavy two-way traffic looks like
+-- the driver finds the next packet already arriving as it finishes one, and
+handles the whole run without leaving the interrupt. Nothing else runs
+meanwhile, and there is no way to wait it out: on the way back the processor
+serves the pending USB interrupt before any interrupt with a higher vector
+number, so returning between transactions changes nothing (it was tried, and
+the latency distribution did not move).
+
+For work that cannot wait that long, the driver calls `usbTransactionEnd()`
+at the end of every transaction, a weak, do-nothing function a sketch may
+replace:
+
+```cpp
+extern "C" void usbTransactionEnd() __attribute__((naked, used));
+void usbTransactionEnd()
+{
+  asm volatile("lds  r16, %[reg]  \n"   // read a byte the UART is holding,
+               "..."                     // stash it, and
+               "ret               \n"   // return; no prologue, no epilogue
+               :: [reg] "i"(_SFR_MEM_ADDR(LINDAT)));
+}
+```
+
+The rules are strict, because it runs inside the USB interrupt:
+
+- **Assembler, naked.** The compiler saves nothing for a naked function and
+  would happily use registers the driver has not saved.
+- **Only what the driver saved:** `r0`, `r16` to `r22`, `Y` and the flags.
+  Everything else belongs to whatever the interrupt interrupted.
+- **Short.** If the host has already begun the next transaction, its packet
+  is sending its sync pattern meanwhile and the driver has to be back in time
+  to catch it. Hooks of 25 and of 33 cycles both measured clean at 16 MHz, so
+  there is room, but a packet caught late is received corrupted rather than
+  missed, and silently: at 16 and 16.5 MHz V-USB has no time to check a CRC.
+- **Don't try to be clever about when it runs.** It is called on every
+  transaction, and calling it only when the next packet was already arriving
+  -- seemingly the thrifty choice, since that is the case the sketch cannot
+  otherwise reach -- turned out to be far worse than having no hook at all,
+  in the bridge that motivated this. The sketch's own handler then stays
+  pending through the run of transactions and runs the moment the driver
+  returns, which is exactly when the next packet arrives.
+
+[DigisparkProBridge](https://github.com/marcocarnut/DigisparkProBridge) uses
+it to collect the byte its UART is holding, which is what let it run
+57600 bps in both directions without losing any.
+
 ## Refusing line settings
 
 A sketch that can only provide some bit rates, such as a USB-UART bridge,
