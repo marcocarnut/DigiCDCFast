@@ -246,8 +246,12 @@ The rules are strict, because it runs inside the USB interrupt:
 
 - **Assembler, naked.** The compiler saves nothing for a naked function and
   would happily use registers the driver has not saved.
-- **Only what the driver saved:** `r0`, `r16` to `r22`, `Y` and the flags.
-  Everything else belongs to whatever the interrupt interrupted.
+- **Only what the driver saved**, which is not the same on both chips:
+  `r16`-`r21`, `Y` and the flags are saved on either. The ATtiny85 also saves
+  `r0` but **not** `r22`; the ATtiny167 saves `r22` but **not** `r0`. Keep to
+  the intersection unless you have checked the push list in the driver file
+  your board uses. Everything else belongs to whatever the interrupt
+  interrupted.
 - **Short.** If the host has already begun the next transaction, its packet
   is sending its sync pattern meanwhile and the driver has to be back in time
   to catch it. Hooks of 25 and of 33 cycles both measured clean at 16 MHz, so
@@ -454,12 +458,14 @@ Things that behave differently:
 ## Projects using DigiCDCFast
 
 - [DigisparkProBridge](https://github.com/marcocarnut/DigisparkProBridge):
-  a USB-to-UART bridge for the Digispark Pro, using its hardware UART.
-  Lossless up to 38400 bps in both directions at once.
+  a USB-to-UART bridge for the Digispark Pro, using its hardware UART and
+  `usbTransactionEnd()`. Lossless up to 57600 bps in both directions at once,
+  and past it.
 - [DigisparkBridge](https://github.com/marcocarnut/DigisparkBridge): an
   experimental USB-to-UART bridge for the original Digispark, which has no
   UART: hardware oversampling with USI to receive, timer-driven bit edges to
-  transmit, and `DigiCDCMedium.h`. Up to 9600 bps.
+  transmit, and `DigiCDCMedium.h`. Up to 9600 bps, and the most demanding user
+  of `usbTransactionEnd()` -- it makes its serial bit edges from inside it.
 
 ## Repository layout
 
