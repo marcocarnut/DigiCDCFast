@@ -303,6 +303,14 @@ uchar usbFunctionSetup(uchar data[8])
 {
 usbRequest_t    *rq = (usbRequest_t*)((void *)data);
 
+#if USB_CFG_VENDOR_HOOK
+    /* A sketch may answer vendor requests of its own alongside the serial
+     * port: the port keeps working, and no endpoint is spent, since these
+     * ride endpoint 0. See digiCdcVendorSetup() in DigiCDCFast.h. */
+    if((rq->bmRequestType & USBRQ_TYPE_MASK) == USBRQ_TYPE_VENDOR)
+        return digiCdcVendorSetup(rq);
+#endif
+
     if((rq->bmRequestType & USBRQ_TYPE_MASK) == USBRQ_TYPE_CLASS){    /* class request type */
 
         if( rq->bRequest==GET_LINE_CODING ){

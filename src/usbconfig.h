@@ -45,6 +45,18 @@ section at the end of this file).
  * USB_CFG_CLOCK_KHZ = 18000 if you enable this option.
  */
 
+#ifndef USB_CFG_VENDOR_HOOK
+#define USB_CFG_VENDOR_HOOK             0
+#endif
+/* DigiCDCFast addition. 1: vendor requests (the type field of bmRequestType
+ * set to vendor) are passed to digiCdcVendorSetup(), which the sketch
+ * defines, and the serial port goes on working beside them. They ride
+ * endpoint 0, so they cost no endpoint -- which matters on a chip whose
+ * driver has only three. It is the cheap way to give one device a second,
+ * unrelated function: a serial port to one program, and something else
+ * entirely to another, read with libusb. Nothing is compiled in when 0.
+ */
+
 #ifndef USB_CFG_TRANSACTION_END_HOOK
 #define USB_CFG_TRANSACTION_END_HOOK    1
 #endif

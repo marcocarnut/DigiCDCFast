@@ -80,5 +80,17 @@ class DigiCDCDevice  : public Stream {
 
 extern DigiCDCDevice SerialUSB;
 
+#if USB_CFG_VENDOR_HOOK
+/* Answer a vendor request. The sketch defines this when USB_CFG_VENDOR_HOOK
+ * is 1 in usbconfig.h; the serial port is unaffected by it. Return what
+ * usbFunctionSetup() returns: the number of bytes to send from usbMsgPtr
+ * (which may point at the sketch's own buffer), 0 to send nothing, or 0xff
+ * to take the data through usbFunctionWrite(). Requests are addressed to the
+ * device rather than to an interface, so a host can issue them with libusb
+ * without claiming the interface the kernel's serial driver has.
+ */
+extern "C" uchar digiCdcVendorSetup(usbRequest_t *rq);
+#endif
+
 
 #endif // __DigiCDCFast_h__

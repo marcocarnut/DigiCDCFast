@@ -286,6 +286,52 @@ next one, which is what let it run 76800 bps in both directions at once
 without losing any -- the last rate low-speed USB can carry, 7680 of the
 8000 bytes/s. It managed 38400 bps before.
 
+### A second function on the same device: vendor requests
+
+The driver has three endpoints beyond endpoint 0, and a serial port spends all
+three. A sketch that wants to be something *else* as well -- a serial port to
+one program and an instrument to another -- has none left, and a second CDC
+interface is therefore out of reach.
+
+Control transfers need no endpoint at all. Set `USB_CFG_VENDOR_HOOK` to 1 in
+`src/usbconfig.h` and vendor requests are handed to a function the sketch
+defines:
+
+```cpp
+extern "C" uchar digiCdcVendorSetup(usbRequest_t *rq)
+{
+    static uchar answer;
+    if(rq->bRequest == MY_REQUEST){
+        answer = whatever();
+        usbMsgPtr = (usbMsgPtr_t)&answer;
+        return 1;               /* bytes to send; 0 sends nothing */
+    }
+    return 0;
+}
+```
+
+Return what `usbFunctionSetup()` returns: a byte count to send from
+`usbMsgPtr` (which may point at the sketch's own buffer, up to 254 bytes), 0,
+or `0xff` to take data through `usbFunctionWrite()`. The serial port is
+unaffected and stays enumerated throughout.
+
+Address the requests to the **device** rather than to an interface, and the
+host side needs no interface claimed, so it works while the kernel's serial
+driver holds the port:
+
+```c
+libusb_control_transfer(h, LIBUSB_REQUEST_TYPE_VENDOR |
+                           LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN,
+                        MY_REQUEST, 0, 0, buf, sizeof buf, 1000);
+```
+
+It runs inside the USB interrupt, so it should read state and set flags and
+leave the work to `loop()`. Nothing is compiled in when the option is 0.
+
+[stumprng](https://github.com/marcocarnut/stumprng) uses it to serve its
+random bytes at about 285 bytes/s while leaving the serial port free for an
+unrelated sketch function on the same chip.
+
 ## Refusing line settings
 
 A sketch that can only provide some bit rates, such as a USB-UART bridge,
