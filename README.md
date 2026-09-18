@@ -328,7 +328,7 @@ libusb_control_transfer(h, LIBUSB_REQUEST_TYPE_VENDOR |
 It runs inside the USB interrupt, so it should read state and set flags and
 leave the work to `loop()`. Nothing is compiled in when the option is 0.
 
-[stumprng](https://github.com/marcocarnut/stumprng) uses it to serve its
+[DigisparkRNG](https://github.com/marcocarnut/DigisparkRNG) uses it to serve its
 random bytes at about 285 bytes/s while leaving the serial port free for an
 unrelated sketch function on the same chip.
 
